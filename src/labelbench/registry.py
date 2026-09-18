@@ -9,6 +9,7 @@ from labelbench.providers.mask2former import Mask2FormerProvider
 from labelbench.providers.ppocr import PPOCRProvider
 from labelbench.providers.ppocr6 import PPOCR6Provider
 from labelbench.providers.rfdetr import RFDETRHistoricalProvider
+from labelbench.providers.rtmdet_lines import RTMDetLinesProvider
 from labelbench.providers.sam2 import SAM2Provider
 from labelbench.providers.yolo26 import YOLO26Provider
 from labelbench.settings import Settings
@@ -36,5 +37,11 @@ def default_registry(settings: Settings) -> dict[str, AnnotationProvider]:
         ),
         "eynollah_textline": EynollahTextlineProvider(
             settings.eynollah_checkpoint, settings.eynollah_python, settings.device
+        ),
+        "rtmdet_lines": RTMDetLinesProvider(
+            settings.rtmdet_checkpoint,
+            settings.rtmdet_config,
+            settings.rtmdet_python,
+            settings.device,
         ),
     }

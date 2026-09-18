@@ -15,7 +15,7 @@ def main() -> None:
     parser.add_argument(
         "--providers", nargs="+", choices=[
             "ppocr", "ppocr6", "mask2former", "sam2", "yolo26", "rfdetr_historical", "docufcn",
-            "eynollah_textline"
+            "eynollah_textline", "rtmdet_lines"
         ], required=True
     )
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)

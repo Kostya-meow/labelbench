@@ -17,6 +17,9 @@ set "LABELBENCH_RFDETR_CHECKPOINT=%CD%\data\models\rfdetr\rfdetr_text_seg_model_
 set "LABELBENCH_DOCUFCN_CHECKPOINT=%CD%\data\models\docufcn\generic_historical_line_model.pth"
 set "LABELBENCH_EYNOLLAH_PYTHON=%CD%\.venv-eynollah\Scripts\python.exe"
 set "LABELBENCH_EYNOLLAH_CHECKPOINT=%CD%\data\models\eynollah\eynollah_textline.onnx"
+set "LABELBENCH_RTMDET_PYTHON=%CD%\.venv-rtmdet\Scripts\python.exe"
+set "LABELBENCH_RTMDET_CHECKPOINT=%CD%\data\models\rtmdet_lines\model.pth"
+set "LABELBENCH_RTMDET_CONFIG=%CD%\data\models\rtmdet_lines\config.py"
 
 if not exist "%UVICORN%" (
   echo ERROR: Run INSTALL_GPU.bat first.
@@ -34,6 +37,11 @@ if not exist "%LABELBENCH_DLA_PYTHON%" (
   exit /b 1
 )
 if not exist "%LABELBENCH_EYNOLLAH_PYTHON%" (
+  echo ERROR: Run INSTALL_GPU.bat first.
+  pause
+  exit /b 1
+)
+if not exist "%LABELBENCH_RTMDET_PYTHON%" (
   echo ERROR: Run INSTALL_GPU.bat first.
   pause
   exit /b 1

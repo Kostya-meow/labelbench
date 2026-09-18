@@ -24,6 +24,9 @@ class Settings:
     dla_python: Path
     eynollah_checkpoint: Path
     eynollah_python: Path
+    rtmdet_checkpoint: Path
+    rtmdet_config: Path
+    rtmdet_python: Path
     lm_studio_url: str
     lm_studio_api_key: str
     lm_studio_timeout: float
@@ -81,6 +84,24 @@ class Settings:
                 os.getenv(
                     "LABELBENCH_EYNOLLAH_PYTHON",
                     root_dir / ".venv-eynollah" / "Scripts" / "python.exe",
+                )
+            ).resolve(),
+            rtmdet_checkpoint=Path(
+                os.getenv(
+                    "LABELBENCH_RTMDET_CHECKPOINT",
+                    root_dir / "data" / "models" / "rtmdet_lines" / "model.pth",
+                )
+            ).resolve(),
+            rtmdet_config=Path(
+                os.getenv(
+                    "LABELBENCH_RTMDET_CONFIG",
+                    root_dir / "data" / "models" / "rtmdet_lines" / "config.py",
+                )
+            ).resolve(),
+            rtmdet_python=Path(
+                os.getenv(
+                    "LABELBENCH_RTMDET_PYTHON",
+                    root_dir / ".venv-rtmdet" / "Scripts" / "python.exe",
                 )
             ).resolve(),
             lm_studio_url=os.getenv("LABELBENCH_LM_STUDIO_URL", "http://localhost:1234/v1").rstrip("/"),

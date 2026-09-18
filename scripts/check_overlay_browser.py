@@ -58,7 +58,7 @@ def main() -> None:
             reply = response.value.json()
             assert response.value.status == 200, reply
             assert reply['parsed'], reply
-            assert isinstance(json.loads(reply['content'])['keep'], list), reply['content']
+            assert isinstance(json.loads(reply['content'])['pick'], list), reply['content']
             final_ink = ink.replace('#overlay', '#llm-overlay')
             page.wait_for_function(f"({final_ink})() > 100")
             assert page.locator('#llm-preview').is_visible()

@@ -43,7 +43,7 @@ def review_run(
 ) -> dict[str, Any]:
     """Send the image and compact detections to LM Studio, then apply its actions."""
 
-    detections, aliases = compact_candidates(run, providers)
+    detections, aliases, groups = compact_candidates(run, providers)
     image_bytes = base64.b64encode(image_path.read_bytes()).decode("ascii")
     mime = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
     user_text = (
@@ -81,8 +81,8 @@ def review_run(
             **request,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT + (
-                    "\nPrevious output was incomplete. Start over, at most 3 geometry edits. "
-                    "Use ID lists for keep/remove/uncertain. Compact complete JSON only."
+                    "\nPrevious output was incomplete. Start over. Omit valid singleton groups. "
+                    "Resolve every multi-candidate group. Compact complete JSON only."
                 )},
                 messages[-1],
             ],
@@ -98,8 +98,10 @@ def review_run(
     review = [marked(a, "kept") for a in refined]
     decisions = {"refined_annotations": refined, "review_annotations": review,
                  "removed_ids": removed_ids, "notes": notes, "invalid_decisions": 0}
-    if parsed is not None and any(k in parsed for k in ("keep", "remove", "uncertain", "edit", "merge", "add")):
-        decisions = apply_review(parsed, aliases, run.image_size)
+    if parsed is not None and any(
+        key in parsed for key in ("pick", "fuse", "drop", "uncertain", "edit", "add")
+    ):
+        decisions = apply_review(parsed, aliases, groups, run.image_size)
     if parsed is None:
         notes = (
             "Ответ VLM оборван по лимиту токенов. Выберите меньше моделей или сузьте задачу."
@@ -230,9 +232,12 @@ def _parse_json(content: str) -> dict[str, Any] | None:
         return None
     if not isinstance(value, dict):
         return None
-    if not any(isinstance(value.get(key), list) for key in ("actions", "annotations", "final_annotations", "keep", "remove", "uncertain", "edit", "merge", "add")):
+    if not any(
+        isinstance(value.get(key), list)
+        for key in ("actions", "annotations", "final_annotations", "pick", "fuse", "drop", "uncertain", "edit", "add")
+    ):
         return None
-    for key in ("keep", "remove", "uncertain", "edit", "merge", "add"):
+    for key in ("pick", "fuse", "drop", "uncertain", "edit", "add"):
         if key in value and not isinstance(value[key], list):
             return None
     return value

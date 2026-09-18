@@ -31,7 +31,7 @@ button { cursor:pointer; }
 .legend-wrap { margin-top:auto; }
 .legend { font:10px/2 'DM Mono',monospace; }
 .legend i { display:inline-block; width:8px; height:8px; margin-right:7px; }
-.ocr { background:var(--orange); }.m2f { background:var(--teal); }.sam { background:var(--violet); }.yolo { background:#e2b93b; }.rfdetr { background:#dc5a8a; }.docufcn { background:#5378d8; }.eynollah { background:#c45a35; }
+.ocr { background:var(--orange); }.m2f { background:var(--teal); }.sam { background:var(--violet); }.yolo { background:#e2b93b; }.rfdetr { background:#dc5a8a; }.docufcn { background:#5378d8; }.eynollah { background:#c45a35; }.rtmdet-lines { background:#008c7a; }
 .viewer { min-width:0; padding:28px clamp(20px,4vw,64px); display:flex; flex-direction:column; gap:18px; }
 .viewer-head { display:flex; align-items:flex-end; justify-content:space-between; }
 .viewer-head h2 { margin:5px 0 0; font:italic 30px/1 'Instrument Serif',serif; }

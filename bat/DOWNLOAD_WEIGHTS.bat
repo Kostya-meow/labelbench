@@ -17,6 +17,9 @@ set "LABELBENCH_RFDETR_CHECKPOINT=%CD%\data\models\rfdetr\rfdetr_text_seg_model_
 set "LABELBENCH_DOCUFCN_CHECKPOINT=%CD%\data\models\docufcn\generic_historical_line_model.pth"
 set "LABELBENCH_EYNOLLAH_PYTHON=%CD%\.venv-eynollah\Scripts\python.exe"
 set "LABELBENCH_EYNOLLAH_CHECKPOINT=%CD%\data\models\eynollah\eynollah_textline.onnx"
+set "LABELBENCH_RTMDET_PYTHON=%CD%\.venv-rtmdet\Scripts\python.exe"
+set "LABELBENCH_RTMDET_CHECKPOINT=%CD%\data\models\rtmdet_lines\model.pth"
+set "LABELBENCH_RTMDET_CONFIG=%CD%\data\models\rtmdet_lines\config.py"
 set "EYNOLLAH_KERAS=%CD%\data\models\eynollah\keras"
 
 if not exist "%PYTHON%" (
@@ -39,6 +42,11 @@ if not exist "%LABELBENCH_EYNOLLAH_PYTHON%" (
   pause
   exit /b 1
 )
+if not exist "%LABELBENCH_RTMDET_PYTHON%" (
+  echo ERROR: Run INSTALL_GPU.bat first.
+  pause
+  exit /b 1
+)
 
 "%PYTHON%" -c "import torch; assert torch.cuda.is_available()" || goto :failed
 "%LABELBENCH_OCR_PYTHON%" -c "import torch, paddle; assert paddle.is_compiled_with_cuda()" || goto :failed
@@ -53,6 +61,14 @@ if not exist "%LABELBENCH_RFDETR_CHECKPOINT%" (
 if not exist "%LABELBENCH_DOCUFCN_CHECKPOINT%" (
   echo Downloading Doc-UFCN generic historical line checkpoint...
   "%PYTHON%" scripts\download_file.py "https://huggingface.co/Teklia/doc-ufcn-generic-historical-line/resolve/main/model.pth" "%LABELBENCH_DOCUFCN_CHECKPOINT%" --size 49198561 --connections 8 || goto :failed
+)
+if not exist "%LABELBENCH_RTMDET_CONFIG%" (
+  echo Downloading Riksarkivet RTMDet Lines config...
+  "%PYTHON%" scripts\download_file.py "https://huggingface.co/Riksarkivet/rtmdet_lines/resolve/main/config.py" "%LABELBENCH_RTMDET_CONFIG%" --size 20524 --connections 1 || goto :failed
+)
+if not exist "%LABELBENCH_RTMDET_CHECKPOINT%" (
+  echo Downloading Riksarkivet RTMDet Lines checkpoint...
+  "%PYTHON%" scripts\download_file.py "https://huggingface.co/Riksarkivet/rtmdet_lines/resolve/main/model.pth" "%LABELBENCH_RTMDET_CHECKPOINT%" --size 474957088 --connections 8 || goto :failed
 )
 if not exist "%EYNOLLAH_KERAS%\keras_metadata.pb" (
   echo Downloading Eynollah Textline SavedModel...
@@ -71,8 +87,8 @@ if not exist "%LABELBENCH_EYNOLLAH_CHECKPOINT%" (
   echo Converting Eynollah Textline SavedModel to ONNX...
   "%LABELBENCH_EYNOLLAH_PYTHON%" -m tf2onnx.convert --saved-model "%EYNOLLAH_KERAS%" --output "%LABELBENCH_EYNOLLAH_CHECKPOINT%" --opset 13 || goto :failed
 )
-echo Downloading PP-OCRv5 Server, Mask2Former, SAM 2.1, YOLO26-seg, RF-DETR, Doc-UFCN and Eynollah weights...
-"%PYTHON%" scripts\prefetch_models.py --providers ppocr ppocr6 mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline || goto :failed
+echo Downloading and verifying all model weights...
+"%PYTHON%" scripts\prefetch_models.py --providers ppocr ppocr6 mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline rtmdet_lines || goto :failed
 echo.
 echo READY. All available weights are cached. Run START.bat.
 pause

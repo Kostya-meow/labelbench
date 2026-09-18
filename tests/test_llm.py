@@ -115,11 +115,11 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
         captured["payload"] = payload
         captured["calls"] = captured.get("calls", 0) + 1
         reason = finish_reason
-        content = '{"keep":["a0"],"remove":[],"uncertain":[]}'
+        content = '{"pick":[],"fuse":[],"drop":[],"uncertain":[]}'
         if finish_reason == "retry_success":
             reason = "length" if captured["calls"] == 1 else "stop"
             if reason == "length":
-                content = '{"keep":["a0"],"edit":['
+                content = '{"pick":['
         return {"choices": [{"finish_reason": reason, "message": {"content": content}}]}
 
     monkeypatch.setattr("labelbench.llm._request_json", fake_request)

@@ -30,7 +30,7 @@ function page() {
 
 test('actual UI draw function renders every provider and obeys visibility/color controls', () => {
   const { sandbox, strokes, get } = page();
-  const providers = ['ppocr', 'ppocr6', 'mask2former', 'sam2', 'yolo26', 'rfdetr_historical', 'docufcn', 'eynollah_textline'];
+  const providers = ['ppocr', 'ppocr6', 'mask2former', 'sam2', 'yolo26', 'rfdetr_historical', 'docufcn', 'eynollah_textline', 'rtmdet_lines'];
   const run = { image_size: [1440, 1172], providers: Object.fromEntries(providers.map(name => [name, {
     annotations: [
       { id: name + '-1', label: 'text', bbox_xywh: [20, 20, 100, 20], polygon: [[20,20], [120,20], [120,40], [20,40]] },

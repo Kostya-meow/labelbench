@@ -1,8 +1,8 @@
 # LabelBench — локальная авторазметка изображений
 
-Локальный API и браузерный интерфейс для сравнения предсказаний восьми независимых
+Локальный API и браузерный интерфейс для сравнения предсказаний девяти независимых
 моделей: **PP-OCRv5 Server**, **PP-OCRv6 Medium Det**, **Mask2Former**, **SAM 2.1**, **YOLO26-seg**, **RF-DETR Historical Textline**,
-**Doc-UFCN Generic Historical Line** и **Eynollah Textline**.
+**Doc-UFCN Generic Historical Line**, **Eynollah Textline** и **Riksarkivet RTMDet Lines**.
 Новые модели добавляются
 одним адаптером, не меняя API и интерфейс.
 
@@ -50,14 +50,11 @@ LabelBench предпочитает Qwen VL при первом заполнен
 Фильтры отдельных классов управляют отрисовкой и экспортом; в VLM передаются все
 классы включённых provider-ов. Начните с одного детектора текстовых строк.
 
-В VLM и скачиваемом `*_vlm.json` координаты нормализованы в 0–1, полигоны сокращены
-до 8 точек. Боксы не дублируются. Кандидат: `[короткий_id, класс, confidence, polygon]`;
-кандидаты сгруппированы по provider. Исходные полные полигоны остаются в результатах inference.
-Ответ: списки ID `keep`, `remove`, `uncertain`; `edit: [[id, polygon]]`,
-`merge: [[[id1,id2], polygon]]`, `add: [[класс, polygon]]`. При merge без polygon
-приложение усредняет границы боксов указанных кандидатов. Все новые координаты — 0–1.
-Неупомянутые и конфликтующие решения требуют ручной проверки. В итоговые принятые
-объекты входят только keep/edit/merge/add; удалённые и сомнительные сохранены для просмотра.
+В VLM передаются только нормализованные в 0–1 сегментационные полигоны до 50 точек;
+боксы не передаются. Перекрывающиеся кандидаты заранее объединены в группы.
+`pick` выбирает ровно один вариант группы, `fuse` задаёт единую итоговую границу,
+`drop` удаляет группу, `uncertain` оставляет её на ручную проверку. Необработанная группа
+с дублями никогда автоматически не считается верной.
 Экспорт содержит компактных кандидатов и исходные решения модели для аудита.
 Под ответом автоматически появляется отдельное изображение с итоговыми боксами VLM
 и количеством объектов по статусам. Зелёный — верно, красный пунктир — удалено,
@@ -104,14 +101,18 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 | `rfdetr_historical` | только historical text lines; регионы отбрасываются до обработки масок | `Kansallisarkisto/rfdetr_textline_textregion_detection_model` |
 | `docufcn` | generic historical text lines | `Teklia/doc-ufcn-generic-historical-line` |
 | `eynollah_textline` | historical textline segmentation | [`SBB/eynollah-textline`](https://huggingface.co/SBB/eynollah-textline) |
+| `rtmdet_lines` | instance segmentation исторических текстовых строк | [`Riksarkivet/rtmdet_lines`](https://huggingface.co/Riksarkivet/rtmdet_lines) |
 
 Для исторического **Mask R-CNN** отдельный публичный checkpoint с воспроизводимым inference API
 не найден, поэтому COCO/обычный scene-text checkpoint сюда не подставлен.
+У **APAU-Net** опубликованы training notebooks, но публичного checkpoint/ONNX нет; provider будет
+добавлен, когда авторы опубликуют веса, пригодные для inference.
 
 Настройки задаются переменными окружения: `LABELBENCH_DEVICE` (`auto`, `cpu`,
 `cuda`), `LABELBENCH_PPOCR6_MODEL`, `LABELBENCH_MASK2FORMER_MODEL`, `LABELBENCH_SAM2_MODEL`,
 `LABELBENCH_SAM2_POINTS_PER_SIDE`, `LABELBENCH_YOLO26_MODEL`,
 `LABELBENCH_RFDETR_CHECKPOINT`, `LABELBENCH_DOCUFCN_CHECKPOINT`,
+`LABELBENCH_RTMDET_CHECKPOINT`, `LABELBENCH_RTMDET_CONFIG`, `LABELBENCH_RTMDET_PYTHON`,
 `LABELBENCH_EYNOLLAH_CHECKPOINT`, `LABELBENCH_EYNOLLAH_PYTHON`.
 Для LM Studio доступны `LABELBENCH_LM_STUDIO_URL` (по умолчанию
 `http://localhost:1234/v1`), `LABELBENCH_LM_STUDIO_API_KEY` и
