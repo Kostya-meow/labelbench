@@ -112,6 +112,8 @@ function showResult(result) {
   renderResultStrip();
   elements.export.disabled = false;
   updateLlmEnabled();
+  requestAnimationFrame(drawAnnotations);
+  window.setTimeout(drawAnnotations, 120);
 }
 function drawAnnotation(context, annotation, color, imageRect, wrapRect, result) {
   const offsetX = imageRect.left - wrapRect.left;
