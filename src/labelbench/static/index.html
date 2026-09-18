@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LabelBench / Auto Annotation</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="masthead">
+    <div><span class="eyebrow">LOCAL VISION WORKBENCH</span><h1>Label<span>Bench</span></h1></div>
+    <div id="device" class="device">проверяю окружение…</div>
+  </header>
+  <main>
+    <aside class="control-panel">
+      <section>
+        <p class="section-label">01 / ИЗОБРАЖЕНИЕ</p>
+        <label for="image-select">Файл из <code>data/images</code></label>
+        <select id="image-select"><option>Нет доступных изображений</option></select>
+        <button id="refresh" class="text-button">↻ обновить список</button>
+      </section>
+      <section>
+        <p class="section-label">02 / ПРОВАЙДЕРЫ</p>
+        <div id="providers" class="providers"></div>
+      </section>
+      <button id="run" class="run-button" disabled>Запустить выбранные <span>→</span></button>
+      <p id="run-status" class="run-status">Добавьте изображения в папку и обновите список.</p>
+      <section class="legend-wrap">
+        <p class="section-label">ЛЕГЕНДА</p>
+        <div class="legend"><i class="ocr"></i> PP-OCRv5 Server</div>
+        <div class="legend"><i class="m2f"></i> Mask2Former</div>
+        <div class="legend"><i class="sam"></i> SAM 2.1</div>
+        <div class="legend"><i class="yolo"></i> YOLO26-seg</div>
+        <div class="legend"><i class="rfdetr"></i> RF-DETR Historical Textline</div>
+        <div class="legend"><i class="docufcn"></i> Doc-UFCN Generic Historical Line</div>
+        <div class="legend"><i class="eynollah"></i> Eynollah Textline</div>
+      </section>
+    </aside>
+    <section class="viewer">
+      <div class="viewer-head">
+        <div><p class="section-label">03 / СРАВНЕНИЕ</p><h2 id="image-title">ожидание изображения</h2></div>
+        <div class="stat"><span>CONSENSUS</span><strong id="consensus">—</strong></div>
+      </div>
+      <div class="canvas-wrap" id="canvas-wrap">
+        <img id="source" alt="Исходное изображение">
+        <svg id="overlay" aria-label="Наложение разметки"></svg>
+        <div class="empty-state" id="empty-state">Выберите изображение<br><small>и запустите модели</small></div>
+      </div>
+      <div class="result-strip" id="result-strip"><div class="result-empty">После запуска здесь появятся результаты по каждому provider-у.</div></div>
+      <button id="export" class="export-button" disabled>Скачать оставленную разметку JSON</button>
+    </section>
+  </main>
+  <template id="provider-template">
+    <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
+  </template>
+  <script src="/static/app.js"></script>
+</body>
+</html>
