@@ -1,6 +1,5 @@
 const state = {
   health: null, result: null, filters: {},
-  backendFallbackShown: false,
   llm: { models: [], messages: [], refinedAnnotations: [], notes: '', model: '' },
 };
 const elements = {
@@ -16,11 +15,13 @@ const elements = {
   llmApply: document.querySelector('#llm-apply'), llmExport: document.querySelector('#llm-export'),
 };
 const colors = {
+  ppocr6: '#16a085',
   ppocr: '#f36f38', mask2former: '#29b6a6', sam2: '#9b73e8', yolo26: '#e2b93b',
   rfdetr_historical: '#dc5a8a', docufcn: '#5378d8', eynollah_textline: '#c45a35',
 };
 const classColors = ['#f36f38', '#29b6a6', '#9b73e8', '#e2b93b', '#dc5a8a', '#5378d8'];
 const providerTitles = {
+  ppocr6: 'PP-OCRv6 Medium Det',
   ppocr: 'PP-OCRv5 Server', mask2former: 'Mask2Former', sam2: 'SAM 2.1', yolo26: 'YOLO26-seg',
   rfdetr_historical: 'RF-DETR Historical Textline', docufcn: 'Doc-UFCN Generic Historical Line', eynollah_textline: 'Eynollah Textline',
 };
@@ -92,7 +93,6 @@ function renderResultStrip() {
 }
 function showResult(result) {
   state.result = result;
-  state.backendFallbackShown = false;
   elements.title.textContent = result.image_name;
   elements.consensus.textContent = `${Math.round(result.consensus_score * 100)}%`;
   elements.source.onload = () => {
@@ -109,6 +109,7 @@ function showResult(result) {
   state.llm.refinedAnnotations = [];
   state.llm.notes = '';
   elements.llmApply.checked = false;
+  elements.llmApply.disabled = true;
   elements.llmExport.disabled = true;
   elements.llmResponse.textContent = 'Ответ VLM появится здесь.';
   renderResultStrip();
@@ -156,7 +157,7 @@ function drawAnnotations() {
   if (!context) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, wrapRect.width, wrapRect.height);
-  if (state.llmApply.checked && state.llm.refinedAnnotations.length) {
+  if (elements.llmApply.checked && state.llm.refinedAnnotations.length) {
     state.llm.refinedAnnotations.forEach((annotation) => drawAnnotation(context, annotation, '#ef7d32', imageRect, wrapRect, result));
     return;
   }
@@ -165,20 +166,6 @@ function drawAnnotations() {
       drawAnnotation(context, annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result);
     });
   });
-  window.setTimeout(() => {
-    if (state.backendFallbackShown || state.result !== result) return;
-    try {
-      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
-      let hasInk = false;
-      for (let index = 3; index < pixels.length; index += 4) {
-        if (pixels[index] > 8) { hasInk = true; break; }
-      }
-      if (!hasInk) {
-        state.backendFallbackShown = true;
-        elements.source.src = `/files/output/combined/${encodeURIComponent(result.run_id)}/overlay.png`;
-      }
-    } catch (error) { console.warn('Overlay fallback check failed', error); }
-  }, 250);
 }
 function exportFiltered() {
   if (!state.result) return;
@@ -196,11 +183,13 @@ function exportFiltered() {
   elements.status.textContent = 'Оставленная разметка скачана в JSON.';
 }
 function updateLlmEnabled() {
-  elements.llmSend.disabled = !state.result || !state.llm.model || !elements.llmPrompt.value.trim();
+  const hasProviders = state.result && Object.keys(state.result.providers).some(name => state.filters[name]?.visible !== false);
+  elements.llmSend.disabled = !hasProviders || !state.llm.model || !elements.llmPrompt.value.trim();
 }
 async function loadLlmModels() {
   elements.llmStatus.textContent = 'Проверяю LM Studio...';
   try {
+    const previousModel = state.llm.model;
     const data = await json('/api/llm/models');
     elements.llmUrl.value = data.base_url || elements.llmUrl.value;
     state.llm.models = data.models || [];
@@ -210,8 +199,9 @@ async function loadLlmModels() {
       state.llm.model = '';
       elements.llmStatus.textContent = data.detail || 'Запусти модель в LM Studio и обнови список.';
     } else {
-      state.llm.model = state.llm.models[0];
+      state.llm.model = state.llm.models.includes(previousModel) ? previousModel : (state.llm.models.find(model => /qwen.*vl/i.test(model)) || state.llm.models[0]);
       state.llm.models.forEach((model) => elements.llmModel.add(new Option(model, model)));
+      elements.llmModel.value = state.llm.model;
       elements.llmStatus.textContent = `LM Studio API: ${state.llm.models.length} моделей в списке`;
     }
   } catch (error) { elements.llmStatus.textContent = `LM Studio: ${error.message}`; }
@@ -227,14 +217,14 @@ async function sendToLlm() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         run_id: state.result.run_id, model: state.llm.model, prompt,
-        providers: Object.keys(state.result.providers), history: state.llm.messages.slice(-20),
+        providers: Object.keys(state.result.providers).filter(name => state.filters[name]?.visible !== false), history: state.llm.messages.slice(-20),
       }),
     });
-    state.llm.messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: data.content });
+    if (data.parsed) state.llm.messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: data.content });
     state.llm.refinedAnnotations = data.refined_annotations || [];
     state.llm.notes = data.notes || '';
     elements.llmResponse.textContent = data.content;
-    elements.llmStatus.textContent = data.parsed ? `Готово: ${state.llm.refinedAnnotations.length} итоговых объектов` : 'VLM ответил, но JSON не распознан.';
+    elements.llmStatus.textContent = data.parsed ? `Готово: ${state.llm.refinedAnnotations.length} итоговых объектов` : data.notes || 'VLM ответил, но JSON не распознан.';
     elements.llmApply.disabled = !state.llm.refinedAnnotations.length;
     elements.llmExport.disabled = !state.llm.refinedAnnotations.length;
     drawAnnotations();
@@ -287,6 +277,7 @@ elements.strip.addEventListener('change', (event) => {
   if (target.dataset.colorProvider) state.filters[provider].colors[target.dataset.colorLabel] = safeColor(target.value, colors[provider] || '#ffffff');
   renderResultStrip();
   drawAnnotations();
+  updateLlmEnabled();
 });
 elements.export.addEventListener('click', exportFiltered);
 window.addEventListener('resize', drawAnnotations);

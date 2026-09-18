@@ -1,7 +1,7 @@
 # LabelBench — локальная авторазметка изображений
 
-Локальный API и браузерный интерфейс для сравнения предсказаний семи независимых
-моделей: **PP-OCRv5 Server**, **Mask2Former**, **SAM 2.1**, **YOLO26-seg**, **RF-DETR Historical Textline**,
+Локальный API и браузерный интерфейс для сравнения предсказаний восьми независимых
+моделей: **PP-OCRv5 Server**, **PP-OCRv6 Medium Det**, **Mask2Former**, **SAM 2.1**, **YOLO26-seg**, **RF-DETR Historical Textline**,
 **Doc-UFCN Generic Historical Line** и **Eynollah Textline**.
 Новые модели добавляются
 одним адаптером, не меняя API и интерфейс.
@@ -33,23 +33,30 @@ PyTorch и Paddle не конфликтовали в одном Windows-проц
 Откройте <http://127.0.0.1:8000>, скопируйте изображения в `data/images/` и нажмите
 «Запустить выбранные». Веса заранее скачивает `bat\DOWNLOAD_WEIGHTS.bat`.
 
+Если остальные модели уже установлены, для PP-OCRv6 достаточно закрыть сервер,
+запустить `bat\INSTALL_PPOCR6.bat`, затем `bat\DOWNLOAD_PPOCR6.bat` и `bat\START.bat`.
+PP-OCRv6 использует PyTorch CUDA в `.venv-gpu`; окружение PaddleOCR не меняется.
+Обе версии PP-OCR возвращают только детекцию и полигоны, без распознавания текста.
+
 ### Проверка разметки через LM Studio
 
 В LM Studio запустите локальный сервер на `http://localhost:1234` и загрузите
-основную модель **PaddleOCR VL 1.6 GGUF**. Файл **Mmproj GGUF** подключите в
-диалоге загрузки как projector. Сам файл `mmproj` нельзя выбирать как основную
-модель: он является CLIP/projector-файлом. Ошибка `CLIP cannot be used as main
-model, use it with --mmproj instead` означает, что выбран именно `mmproj`.
-В LabelBench основная модель должна появиться с идентификатором
-`paddleocr-vl-1.6`. После обычного inference выберите нужные
-provider-ы, задайте промпт и нажмите «Отправить в VLM». В запросе передаются
-исходное изображение, результаты выбранных моделей и история текущего диалога.
+**qwen/qwen3-vl-4b** — эта модель проверена через интерфейс с изображением.
+LabelBench предпочитает Qwen VL при первом заполнении списка моделей.
+После обычного inference оставьте включёнными нужные слои provider-ов,
+задайте промпт и нажмите «Отправить в VLM». В запросе передаются
+исходное изображение, боксы результатов этих моделей и история текущего диалога.
+Фильтры отдельных классов управляют отрисовкой и экспортом; в VLM передаются все
+классы включённых provider-ов. Начните с одного детектора текстовых строк.
 
 Координаты имеют единый формат: начало в левом верхнем углу изображения,
 `bbox_xywh: [x, y, width, height]` в пикселях, polygon — список пар `[x, y]`.
+Полные исходные полигоны сохраняются в приложении; в запросе используются компактные боксы.
 VLM возвращает JSON-действия `keep`, `remove`, `modify`, `add`; приложение
 проверяет границы, применяет их к исходным объектам и позволяет скачать
 `*_vlm.json`.
+Объекты без действий сохраняются. Оборванный JSON не применяется и не считается
+успешной проверкой. Ответ VLM требует проверки человеком: модель может ошибаться в координатах.
 
 Если модель видна в списке, но при отправке появляется `Failed to load model`,
 загрузите её кнопкой загрузки модели в LM Studio и дождитесь окончания загрузки.
@@ -57,8 +64,9 @@ VLM возвращает JSON-действия `keep`, `remove`, `modify`, `add`
 уже загружена в VRAM.
 
 Для проверки изображения используйте vision-модель, например `Qwen3-VL-4B`.
-Если LM Studio пишет `does not support image inputs`, выбрана text-only модель
-или основной GGUF без multimodal projector.
+Если LM Studio пишет `does not support image inputs`, текущая конфигурация модели
+не принимает изображения. Сам файл `mmproj` нельзя загружать как основную модель:
+он должен работать вместе с соответствующими основными весами и поддерживаемым runtime.
 
 > **SAM 2.1:** для GPU-инференса Meta рекомендует WSL2/Linux; скрипт всё равно
 > поддерживает Windows, но CUDA extension может не собраться. Базовый inference
@@ -81,6 +89,7 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 | Provider | Роль | Вес по умолчанию |
 | --- | --- | --- |
 | `ppocr` | детекция текстовых областей и polygons, без OCR-текста | PP-OCRv5 Server detection (PaddleOCR 3.x) |
+| `ppocr6` | детекция текста и polygons через Transformers/PyTorch CUDA, без OCR-текста | [`PaddlePaddle/PP-OCRv6_medium_det_safetensors`](https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_det_safetensors) |
 | `mask2former` | panoptic/instance-кандидаты классов COCO | `facebook/mask2former-swin-large-coco-panoptic` |
 | `sam2` | class-agnostic object masks | `facebook/sam2.1-hiera-large` |
 | `yolo26` | COCO instance segmentation | `yolo26n-seg.pt` |
@@ -92,7 +101,7 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 не найден, поэтому COCO/обычный scene-text checkpoint сюда не подставлен.
 
 Настройки задаются переменными окружения: `LABELBENCH_DEVICE` (`auto`, `cpu`,
-`cuda`), `LABELBENCH_MASK2FORMER_MODEL`, `LABELBENCH_SAM2_MODEL`,
+`cuda`), `LABELBENCH_PPOCR6_MODEL`, `LABELBENCH_MASK2FORMER_MODEL`, `LABELBENCH_SAM2_MODEL`,
 `LABELBENCH_SAM2_POINTS_PER_SIDE`, `LABELBENCH_YOLO26_MODEL`,
 `LABELBENCH_RFDETR_CHECKPOINT`, `LABELBENCH_DOCUFCN_CHECKPOINT`,
 `LABELBENCH_EYNOLLAH_CHECKPOINT`, `LABELBENCH_EYNOLLAH_PYTHON`.
@@ -105,6 +114,7 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 - `GET /api/health` — доступность providers.
 - `GET /api/images` — список входных изображений.
 - `POST /api/runs` — запустить одно изображение: `{"image_name":"a.jpg","providers":["ppocr","sam2"]}`.
+- Для PP-OCRv6 передайте `"providers":["ppocr6"]` в тот же endpoint.
 - `GET /api/runs/{run_id}` — объединённый результат.
 - `GET /api/runs/{run_id}/overlay/{provider}` — наложение provider-а.
 - `GET /api/llm/models` — список моделей, опубликованных LM Studio.
@@ -125,3 +135,25 @@ PP-OCR и Mask2Former делают независимые предсказани
 `consensus_score` — пространственное согласие с другими кандидатами, а не
 истинная точность. Результаты предназначены для ускорения проверки человеком,
 а не для автоматического объявления ground truth.
+
+## Проверка интерфейса
+
+`node --test tests/overlay.test.cjs` выполняет реальный `app.js` и проверяет
+отрисовку всех providers, скрытие, цвет и переключение на результат VLM.
+Регрессия пустого canvas была вызвана обращением к `state.llmApply.checked`
+вместо DOM-элемента `elements.llmApply.checked`.
+
+Для проверки в установленном Google Chrome: установите `playwright` в окружение
+разработчика (`uv pip install --python .venv/Scripts/python.exe playwright`),
+запустите сайт и выполните:
+
+```powershell
+.venv/Scripts/python.exe -m pytest -q
+.venv/Scripts/python.exe scripts/check_overlay_browser.py --run-id ID
+# Дополнительно отправить реальное изображение в Qwen через кнопку сайта:
+.venv/Scripts/python.exe scripts/check_overlay_browser.py --run-id ID --vlm
+```
+
+Замените `ID` идентификатором завершённого запуска с непустой разметкой.
+Тест проверяет пиксели canvas, скрытие слоёв, resize и повторную загрузку изображения.
+Скриншоты сохраняются в `temp/overlay-browser.png` и `temp/qwen-browser.png`.

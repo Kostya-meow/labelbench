@@ -1,7 +1,16 @@
 from pathlib import Path
 
+import pytest
+
 from labelbench.contracts import Annotation, ProviderResult, RunResult
-from labelbench.llm import apply_actions, review_run
+from labelbench.llm import _parse_json, apply_actions, review_run
+
+
+def test_truncated_json_cannot_be_mistaken_for_success() -> None:
+    assert _parse_json('{"actions":[{"action":"remove","id":"line-1"},') is None
+    assert _parse_json('{"action":"remove","id":"line-1"}') is None
+    assert _parse_json('{"actions":[],"notes":"checked"}') == {"actions": [], "notes": "checked"}
+    assert _parse_json('```json\n{"actions":[]}\n```') == {"actions": []}
 
 
 def test_apply_llm_actions_keeps_valid_contract_and_bounds() -> None:
@@ -69,7 +78,8 @@ def test_apply_llm_actions_clamps_polygon_and_skips_invalid_polygon() -> None:
     assert annotations[1].polygon is None
 
 
-def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Path) -> None:
+@pytest.mark.parametrize("finish_reason", ["stop", "length"])
+def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Path, finish_reason: str) -> None:
     image_path = tmp_path / "page.jpg"
     image_path.write_bytes(b"fake-image")
     run = RunResult(
@@ -103,7 +113,7 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
         captured["method"] = method
         captured["url"] = url
         captured["payload"] = payload
-        return {"choices": [{"message": {"content": '{"actions":[{"action":"keep","id":"line-1"}]}'}}]}
+        return {"choices": [{"finish_reason": finish_reason, "message": {"content": '{"actions":[{"action":"keep","id":"line-1"}]}'}}]}
 
     monkeypatch.setattr("labelbench.llm._request_json", fake_request)
     result = review_run("http://localhost:1234/v1", "key", 10.0, "qwen/qwen3-vl-4b", "check", [], run, image_path, ["ppocr"])
@@ -113,4 +123,8 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
     message = payload["messages"][-1]
     assert message["content"][1]["type"] == "image_url"
     assert "Machine detections JSON" in message["content"][0]["text"]
-    assert result["refined_annotations"][0].id == "line-1"
+    if finish_reason == "length":
+        assert result["parsed"] is False
+        assert result["refined_annotations"] == []
+    else:
+        assert result["refined_annotations"][0].id == "line-1"

@@ -13,6 +13,7 @@ from labelbench.settings import Settings
 
 PROVIDER_COLORS = {
     "ppocr": "#f36f38",
+    "ppocr6": "#16a085",
     "mask2former": "#29b6a6",
     "sam2": "#9b73e8",
     "yolo26": "#e2b93b",

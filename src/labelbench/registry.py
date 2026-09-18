@@ -7,6 +7,7 @@ from labelbench.providers.docufcn import DocUFCNProvider
 from labelbench.providers.eynollah import EynollahTextlineProvider
 from labelbench.providers.mask2former import Mask2FormerProvider
 from labelbench.providers.ppocr import PPOCRProvider
+from labelbench.providers.ppocr6 import PPOCR6Provider
 from labelbench.providers.rfdetr import RFDETRHistoricalProvider
 from labelbench.providers.sam2 import SAM2Provider
 from labelbench.providers.yolo26 import YOLO26Provider
@@ -18,6 +19,7 @@ def default_registry(settings: Settings) -> dict[str, AnnotationProvider]:
 
     return {
         "ppocr": PPOCRProvider(settings.device),
+        "ppocr6": PPOCR6Provider(settings),
         "mask2former": Mask2FormerProvider(settings.mask2former_model, settings.device),
         "sam2": SAM2Provider(
             settings.sam2_model,

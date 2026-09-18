@@ -27,6 +27,7 @@ class Settings:
     lm_studio_url: str
     lm_studio_api_key: str
     lm_studio_timeout: float
+    ppocr6_model: str = "PaddlePaddle/PP-OCRv6_medium_det_safetensors"
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -42,6 +43,7 @@ class Settings:
             output_dir=root_dir / "data" / "output",
             models_dir=root_dir / "data" / "models",
             device=device,
+            ppocr6_model=os.getenv("LABELBENCH_PPOCR6_MODEL", "PaddlePaddle/PP-OCRv6_medium_det_safetensors"),
             mask2former_model=os.getenv(
                 "LABELBENCH_MASK2FORMER_MODEL", "facebook/mask2former-swin-large-coco-panoptic"
             ),

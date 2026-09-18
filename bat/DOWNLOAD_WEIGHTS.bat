@@ -72,7 +72,7 @@ if not exist "%LABELBENCH_EYNOLLAH_CHECKPOINT%" (
   "%LABELBENCH_EYNOLLAH_PYTHON%" -m tf2onnx.convert --saved-model "%EYNOLLAH_KERAS%" --output "%LABELBENCH_EYNOLLAH_CHECKPOINT%" --opset 13 || goto :failed
 )
 echo Downloading PP-OCRv5 Server, Mask2Former, SAM 2.1, YOLO26-seg, RF-DETR, Doc-UFCN and Eynollah weights...
-"%PYTHON%" scripts\prefetch_models.py --providers ppocr mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline || goto :failed
+"%PYTHON%" scripts\prefetch_models.py --providers ppocr ppocr6 mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline || goto :failed
 echo.
 echo READY. All available weights are cached. Run START.bat.
 pause

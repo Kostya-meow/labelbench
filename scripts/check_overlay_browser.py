@@ -1,0 +1,77 @@
+"""Exercise the served UI in sandboxed headless Chrome; no model download required.
+
+Run with .venv/Scripts/python.exe scripts/check_overlay_browser.py --run-id ID [--vlm].
+Requires playwright installed in the development environment and Google Chrome.
+"""
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+from playwright.sync_api import sync_playwright
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--vlm", action="store_true")
+    arguments = parser.parse_args()
+    output = Path("temp")
+    output.mkdir(exist_ok=True)
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(channel="chrome", headless=True, chromium_sandbox=True)
+        page = browser.new_page(viewport={"width": 1668, "height": 1280})
+        errors: list[str] = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        page.goto("http://127.0.0.1:8000/")
+        page.wait_for_load_state("networkidle")
+        # Use a completed real run to isolate UI rendering from GPU inference.
+        page.evaluate("""async (runId) => {
+          const run = await (await fetch('/api/runs/' + encodeURIComponent(runId))).json();
+          showResult(run);
+        }""", arguments.run_id)
+        ink = """() => {
+          const c = document.querySelector('#overlay');
+          const p = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+          let count = 0;
+          for (let i = 3; i < p.length; i += 4) if (p[i]) count++;
+          return count;
+        }"""
+        page.wait_for_function(f"({ink})() > 100")
+        colored = page.evaluate(ink)
+        page.screenshot(path=str(output / "overlay-browser.png"), full_page=True)
+        for checkbox in page.locator('[data-visible-provider]').all():
+            checkbox.uncheck()
+        assert page.evaluate(ink) == 0, "Hiding providers must clear every pixel"
+        page.locator('[data-visible-provider]').first.check()
+        page.wait_for_function(f"({ink})() > 100")
+        page.set_viewport_size({"width": 900, "height": 800})
+        page.wait_for_function(f"({ink})() > 100")
+        # A second run of the same image must draw even when the image is cached.
+        page.evaluate("showResult(state.result)")
+        page.wait_for_function(f"({ink})() > 100")
+        if arguments.vlm:
+            page.locator('#llm-model').select_option('qwen/qwen3-vl-4b')
+            page.locator('#llm-prompt').fill(
+                'Review the visible page and detections. Return only a JSON object with '
+                'actions and notes. Mention what kind of page you see in notes. '
+                'Only return necessary edits; unmentioned detections are kept automatically.'
+            )
+            with page.expect_response('**/api/llm/review', timeout=300000) as response:
+                page.locator('#llm-send').click()
+            reply = response.value.json()
+            assert response.value.status == 200, reply
+            assert reply['parsed'], reply
+            assert isinstance(json.loads(reply['content'])['actions'], list), reply['content']
+            page.locator('#llm-apply').check()
+            page.wait_for_function(f"({ink})() > 100")
+            (output / 'qwen-review.json').write_text(json.dumps(reply, ensure_ascii=False, indent=2), encoding='utf-8')
+            page.screenshot(path=str(output / 'qwen-browser.png'), full_page=True)
+        assert not errors, errors
+        print(json.dumps({"colored_pixels": colored, "page_errors": errors, "filters_resize_cached": "passed"}))
+        browser.close()
+
+
+if __name__ == "__main__":
+    main()

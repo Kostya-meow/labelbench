@@ -14,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--providers", nargs="+", choices=[
-            "ppocr", "mask2former", "sam2", "yolo26", "rfdetr_historical", "docufcn",
+            "ppocr", "ppocr6", "mask2former", "sam2", "yolo26", "rfdetr_historical", "docufcn",
             "eynollah_textline"
         ], required=True
     )
@@ -63,7 +63,7 @@ def main() -> None:
             else:
                 device = provider.prefetch()  # type: ignore[attr-defined]
                 if settings.device == "cuda" and device != "cuda":
-                    raise RuntimeError(f"YOLO26 loaded on {device}, expected GPU")
+                    raise RuntimeError(f"{name} loaded on {device}, expected GPU")
         print(f"{name}: ready on {device}")
 
 

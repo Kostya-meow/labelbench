@@ -27,7 +27,7 @@ if not exist "%EYNOLLAH_PYTHON%" uv venv ".venv-eynollah" --python 3.10 || goto 
 uv pip install --python "%PYTHON%" fastapi "uvicorn[standard]" python-multipart pillow numpy pydantic-settings pytest ruff || goto :failed
 
 echo Installing Mask2Former, YOLO26 and official SAM 2 runtime...
-uv pip install --python "%PYTHON%" transformers accelerate scipy "safetensors>=0.8" || goto :failed
+uv pip install --python "%PYTHON%" "transformers==5.17.0" accelerate scipy "safetensors>=0.8" "opencv-python>=4.10" || goto :failed
 uv pip install --python "%PYTHON%" "SAM-2 @ git+https://github.com/facebookresearch/sam2.git" || goto :failed
 
 echo Installing PyTorch CUDA runtime for RTX 5060 Ti...

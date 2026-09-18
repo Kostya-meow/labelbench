@@ -25,7 +25,10 @@ Return JSON only, with this shape:
   {"action":"modify","id":"existing-id","label":"text_line","bbox_xywh":[x,y,w,h],"polygon":[[x,y],...],"score":0.9},
   {"action":"add","label":"text_line","bbox_xywh":[x,y,w,h],"polygon":[[x,y],...],"score":0.8}
 ],"notes":"short explanation"}
-Use keep for correct detections. Use remove for false positives. Use modify only when the
+Unmentioned detections are kept automatically: return only edits, not a long list of keep actions.
+Each id may appear only once. If no edits are necessary, return {"actions":[],"notes":"..."}.
+Input detections contain bounding boxes; full original polygons are retained by the application.
+Use remove for false positives. Use modify only when the
 coordinates or label should change. Add missing lines only when visible in the image. Keep all
 coordinates inside the image size. Do not invent OCR text. Never return markdown fences."""
 
@@ -100,12 +103,19 @@ def review_run(
                 ) from retry_error
             raise
     try:
-        content = str(response["choices"][0]["message"]["content"])
+        choice = response["choices"][0]
+        content = str(choice["message"]["content"])
     except (KeyError, IndexError, TypeError) as error:
         raise LMStudioError("LM Studio returned no assistant content") from error
-    parsed = _parse_json(content)
+    truncated = choice.get("finish_reason") == "length"
+    parsed = None if truncated else _parse_json(content)
     base_annotations = [annotation for provider in providers for annotation in run.providers[provider].annotations]
     refined, removed_ids, notes = apply_actions(parsed, base_annotations, run.image_size)
+    if parsed is None:
+        notes = (
+            "Ответ VLM оборван по лимиту токенов. Выберите меньше моделей или сузьте задачу."
+            if truncated else "VLM не вернул полный JSON с actions. Повторите запрос."
+        )
     return {
         "model": model,
         "content": content,
@@ -147,6 +157,8 @@ def apply_actions(
             for field in ("label", "score", "bbox_xywh", "polygon", "text"):
                 if field in action:
                     candidate[field] = action[field]
+            if "bbox_xywh" in action and "polygon" not in action:
+                candidate["polygon"] = None
             updated = _annotation_from_payload(candidate, image_size, identifier)
             if updated is not None:
                 current[identifier] = updated
@@ -163,7 +175,12 @@ def _detection_context(run: RunResult, providers: list[str]) -> list[dict[str, A
             "provider": provider,
             "model": run.providers[provider].model,
             "annotations": [
-                annotation.model_dump(exclude={"mask_rle", "text"})
+                {
+                    "id": annotation.id,
+                    "label": annotation.label,
+                    "score": round(annotation.score, 3),
+                    "bbox_xywh": [round(value, 1) for value in annotation.bbox_xywh],
+                }
                 for annotation in run.providers[provider].annotations
             ],
         }
@@ -219,16 +236,16 @@ def _parse_json(content: str) -> dict[str, Any] | None:
     candidate = content.strip()
     if candidate.startswith("```"):
         candidate = candidate.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
-    decoder = json.JSONDecoder()
-    for index, char in enumerate(candidate):
-        if char != "{":
-            continue
-        try:
-            value, _ = decoder.raw_decode(candidate[index:])
-        except json.JSONDecodeError:
-            continue
-        return value if isinstance(value, dict) else None
-    return None
+    # Never salvage a nested action from a truncated outer JSON object.
+    try:
+        value = json.loads(candidate)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    if not any(isinstance(value.get(key), list) for key in ("actions", "annotations", "final_annotations")):
+        return None
+    return value
 
 
 def _request_json(
