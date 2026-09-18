@@ -1,4 +1,4 @@
-"""RF-DETR historical text-line and text-region segmentation adapter."""
+"""RF-DETR historical segmentation adapter exposing text lines only."""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ class RFDETRHistoricalProvider(AnnotationProvider):
             return ProviderAvailability(False, "Install: uv pip install rfdetr supervision")
         if not self._checkpoint.is_file():
             return ProviderAvailability(False, "Run DOWNLOAD_WEIGHTS.bat to download RF-DETR weights")
-        return ProviderAvailability(True, "Ready; historical text lines and regions")
+        return ProviderAvailability(True, "Ready; historical text lines only")
 
     def _load_model(self) -> tuple[Any, str]:
         import torch
@@ -71,14 +71,17 @@ class RFDETRHistoricalProvider(AnnotationProvider):
         for index, (box, score, class_id) in enumerate(
             zip(detections.xyxy, detections.confidence, detections.class_id)
         ):
+            # The checkpoint uses class 1 for regions and class 2 for text lines.
+            # Drop other classes before extracting or encoding their masks.
+            if int(class_id) != 2:
+                continue
             mask = np.asarray(masks[index], dtype=bool) if masks is not None else None
             polygon = self._polygon(mask) if mask is not None else None
             x1, y1, x2, y2 = (float(value) for value in box)
-            label = {1: "text_region", 2: "text_line"}.get(int(class_id), str(int(class_id)))
             annotations.append(
                 Annotation(
                     id=f"rfdetr-historical-{uuid.uuid4().hex[:12]}",
-                    label=label,
+                    label="text_line",
                     score=float(score),
                     bbox_xywh=[x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)],
                     polygon=polygon,

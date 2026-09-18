@@ -101,7 +101,7 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 | `mask2former` | panoptic/instance-кандидаты классов COCO | `facebook/mask2former-swin-large-coco-panoptic` |
 | `sam2` | class-agnostic object masks | `facebook/sam2.1-hiera-large` |
 | `yolo26` | COCO instance segmentation | `yolo26n-seg.pt` |
-| `rfdetr_historical` | historical text lines and text regions | `Kansallisarkisto/rfdetr_textline_textregion_detection_model` |
+| `rfdetr_historical` | только historical text lines; регионы отбрасываются до обработки масок | `Kansallisarkisto/rfdetr_textline_textregion_detection_model` |
 | `docufcn` | generic historical text lines | `Teklia/doc-ufcn-generic-historical-line` |
 | `eynollah_textline` | historical textline segmentation | [`SBB/eynollah-textline`](https://huggingface.co/SBB/eynollah-textline) |
 
