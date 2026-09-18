@@ -53,17 +53,12 @@ def main() -> None:
         page.wait_for_function(f"({ink})() > 100")
         if arguments.vlm:
             page.locator('#llm-model').select_option('qwen/qwen3-vl-4b')
-            page.locator('#llm-prompt').fill(
-                'Review the visible page and detections. Return only a JSON object with '
-                'actions and notes. Mention what kind of page you see in notes. '
-                'Only return necessary edits; unmentioned detections are kept automatically.'
-            )
             with page.expect_response('**/api/llm/review', timeout=300000) as response:
                 page.locator('#llm-send').click()
             reply = response.value.json()
             assert response.value.status == 200, reply
             assert reply['parsed'], reply
-            assert isinstance(json.loads(reply['content'])['actions'], list), reply['content']
+            assert isinstance(json.loads(reply['content'])['keep'], list), reply['content']
             final_ink = ink.replace('#overlay', '#llm-overlay')
             page.wait_for_function(f"({final_ink})() > 100")
             assert page.locator('#llm-preview').is_visible()
@@ -72,11 +67,19 @@ def main() -> None:
             page.set_viewport_size({"width": 1200, "height": 900})
             page.wait_for_function(f"({final_ink})() > 100")
             page.locator('#llm-apply').check()
-            page.wait_for_function(f"({ink})() > 100")
+            if reply['refined_annotations']:
+                page.wait_for_function(f"({ink})() > 100")
             (output / 'qwen-review.json').write_text(json.dumps(reply, ensure_ascii=False, indent=2), encoding='utf-8')
             page.screenshot(path=str(output / 'qwen-browser.png'), full_page=True)
+            # All review status filters must clear and restore the lower overlay.
+            for checkbox in page.locator('[data-review-status]').all():
+                checkbox.uncheck()
+            assert page.evaluate(final_ink) == 0
+            for checkbox in page.locator('[data-review-status]').all():
+                checkbox.check()
+            page.wait_for_function(f"({final_ink})() > 100")
             # Empty valid results stay visible, and a new run clears the old preview.
-            page.evaluate("state.llm.refinedAnnotations = []; showLlmPreview(true)")
+            page.evaluate("state.llm.refinedAnnotations = []; state.llm.reviewAnnotations = []; showLlmPreview(true)")
             page.wait_for_function(f"({final_ink})() === 0")
             assert page.locator('#llm-preview').is_visible()
             page.evaluate("showLlmPreview(false)")

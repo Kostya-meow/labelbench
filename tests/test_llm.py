@@ -78,7 +78,7 @@ def test_apply_llm_actions_clamps_polygon_and_skips_invalid_polygon() -> None:
     assert annotations[1].polygon is None
 
 
-@pytest.mark.parametrize("finish_reason", ["stop", "length"])
+@pytest.mark.parametrize("finish_reason", ["stop", "length", "retry_success"])
 def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Path, finish_reason: str) -> None:
     image_path = tmp_path / "page.jpg"
     image_path.write_bytes(b"fake-image")
@@ -113,7 +113,14 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
         captured["method"] = method
         captured["url"] = url
         captured["payload"] = payload
-        return {"choices": [{"finish_reason": finish_reason, "message": {"content": '{"actions":[{"action":"keep","id":"line-1"}]}'}}]}
+        captured["calls"] = captured.get("calls", 0) + 1
+        reason = finish_reason
+        content = '{"keep":["a0"],"remove":[],"uncertain":[]}'
+        if finish_reason == "retry_success":
+            reason = "length" if captured["calls"] == 1 else "stop"
+            if reason == "length":
+                content = '{"keep":["a0"],"edit":['
+        return {"choices": [{"finish_reason": reason, "message": {"content": content}}]}
 
     monkeypatch.setattr("labelbench.llm._request_json", fake_request)
     result = review_run("http://localhost:1234/v1", "key", 10.0, "qwen/qwen3-vl-4b", "check", [], run, image_path, ["ppocr"])
@@ -123,6 +130,8 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
     message = payload["messages"][-1]
     assert message["content"][1]["type"] == "image_url"
     assert "Machine detections JSON" in message["content"][0]["text"]
+    assert "bbox_xywh" not in message["content"][0]["text"]
+    assert captured["calls"] == (1 if finish_reason == "stop" else 2)
     if finish_reason == "length":
         assert result["parsed"] is False
         assert result["refined_annotations"] == []

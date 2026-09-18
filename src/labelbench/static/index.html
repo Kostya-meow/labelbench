@@ -52,12 +52,21 @@
       <section class="llm-panel">
         <div class="llm-head"><div><p class="section-label">04 / VLM-ПРОВЕРКА</p><h3>LM Studio</h3></div><span id="llm-status" class="llm-status">Проверяю LM Studio...</span></div>
         <div class="llm-config"><input id="llm-url" value="http://localhost:1234/v1" readonly aria-label="LM Studio API URL"><select id="llm-model" aria-label="Модель LM Studio"><option>Проверяю список...</option></select><button id="llm-refresh" class="text-button">↻ модели</button></div>
-        <p class="coordinate-hint">В VLM отправляются изображение и единые координаты: пиксели, начало слева сверху, <code>bbox_xywh=[x,y,width,height]</code>, polygon — <code>[[x,y], ...]</code>.</p>
-        <textarea id="llm-prompt" rows="4">Проверь найденные text_line на изображении. Удали явные false positive, исправь границы и добавь пропущенные строки. Сохрани правильные id.</textarea>
+        <p class="coordinate-hint">В VLM: только полигоны до 8 точек, координаты 0–1 и короткие ID. Боксы строятся для просмотра. Каждый запрос независимый.</p>
+        <textarea id="llm-prompt" rows="4">Выбери верные области, удали только явные ошибки и дубли, сомнительные отметь отдельно. Для одной области выбери лучший кандидат или объедини границы. Добавь явно пропущенное. Ответ компактный.</textarea>
         <div class="llm-actions"><button id="llm-send" class="run-button" disabled>Отправить в VLM <span>→</span></button><label class="apply-control"><input id="llm-apply" type="checkbox" disabled> показывать улучшенную разметку</label><button id="llm-export" class="export-button" disabled>Скачать VLM JSON</button></div>
         <pre id="llm-response" class="llm-response">Ответ VLM появится здесь.</pre>
+        <p id="llm-result-message" role="status" class="coordinate-hint"></p>
         <section id="llm-preview" class="llm-preview" hidden>
           <div class="llm-head"><h3>Итоговая разметка VLM</h3><span id="llm-preview-count" class="llm-status"></span></div>
+          <div class="llm-actions">
+            <label style="color:#159447"><input type="checkbox" data-review-status="kept" checked> Верно</label>
+            <label style="color:#de3c3c"><input type="checkbox" data-review-status="removed" checked> Удалено</label>
+            <label style="color:#ce9500"><input type="checkbox" data-review-status="uncertain" checked> Сомнительно</label>
+            <label style="color:#1675db"><input type="checkbox" data-review-status="modified" checked> Исправлено</label>
+            <label style="color:#884bd8"><input type="checkbox" data-review-status="merged" checked> Объединено</label>
+            <label style="color:#009d99"><input type="checkbox" data-review-status="added" checked> Добавлено</label>
+          </div>
           <div class="canvas-wrap loaded" id="llm-canvas-wrap">
             <img id="llm-source" alt="Изображение с итоговыми боксами VLM">
             <canvas id="llm-overlay" aria-label="Итоговые боксы VLM"></canvas>
@@ -69,6 +78,6 @@
   <template id="provider-template">
     <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
   </template>
-  <script src="/static/app.js?v=vlm-preview"></script>
+  <script src="/static/app.js?v=vlm-compact"></script>
 </body>
 </html>

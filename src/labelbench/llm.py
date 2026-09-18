@@ -14,23 +14,9 @@ from typing import Any
 from pydantic import ValidationError
 
 from labelbench.contracts import Annotation, LLMMessage, RunResult
+from labelbench.llm_protocol import REVIEW_PROMPT, apply_review, compact_candidates, marked
 
-SYSTEM_PROMPT = """You review historical document segmentation.
-The image and machine detections use one coordinate system: pixel coordinates, origin at the
-top-left corner, bbox_xywh=[x,y,width,height], polygons are [[x,y], ...].
-Return JSON only, with this shape:
-{"actions":[
-  {"action":"keep","id":"existing-id"},
-  {"action":"remove","id":"existing-id"},
-  {"action":"modify","id":"existing-id","label":"text_line","bbox_xywh":[x,y,w,h],"polygon":[[x,y],...],"score":0.9},
-  {"action":"add","label":"text_line","bbox_xywh":[x,y,w,h],"polygon":[[x,y],...],"score":0.8}
-],"notes":"short explanation"}
-Unmentioned detections are kept automatically: return only edits, not a long list of keep actions.
-Each id may appear only once. If no edits are necessary, return {"actions":[],"notes":"..."}.
-Input detections contain bounding boxes; full original polygons are retained by the application.
-Use remove for false positives. Use modify only when the
-coordinates or label should change. Add missing lines only when visible in the image. Keep all
-coordinates inside the image size. Do not invent OCR text. Never return markdown fences."""
+SYSTEM_PROMPT = REVIEW_PROMPT
 
 
 class LMStudioError(RuntimeError):
@@ -57,16 +43,15 @@ def review_run(
 ) -> dict[str, Any]:
     """Send the image and compact detections to LM Studio, then apply its actions."""
 
-    detections = _detection_context(run, providers)
+    detections, aliases = compact_candidates(run, providers)
     image_bytes = base64.b64encode(image_path.read_bytes()).decode("ascii")
     mime = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
     user_text = (
         f"User instruction:\n{prompt}\n\n"
-        f"Image name: {run.image_name}\nImage size: {run.image_size}\n"
         f"Machine detections JSON:\n{json.dumps(detections, ensure_ascii=False, separators=(',', ':'))}"
     )
     messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
-    messages.extend(message.model_dump() for message in history[-20:])
+    # Each review is independent: do not resend verbose previous JSON or stale IDs.
     messages.append(
         {
             "role": "user",
@@ -81,36 +66,40 @@ def review_run(
         "messages": messages,
         "temperature": 0.1,
         "max_tokens": 4000,
-        "response_format": {"type": "json_object"},
     }
-    try:
-        response = _request_json(
-            "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
-        )
-    except LMStudioError as error:
-        if "400" not in str(error):
-            raise
-        request.pop("response_format")
-        try:
-            response = _request_json(
-                "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
-            )
-        except LMStudioError as retry_error:
-            if "does not support image inputs" in str(retry_error):
-                raise LMStudioError(
-                    f"{retry_error} Выберите vision-модель, например Qwen3-VL, "
-                    "а не text-only модель."
-                ) from retry_error
-            raise
-    try:
-        choice = response["choices"][0]
-        content = str(choice["message"]["content"])
-    except (KeyError, IndexError, TypeError) as error:
-        raise LMStudioError("LM Studio returned no assistant content") from error
-    truncated = choice.get("finish_reason") == "length"
+    response = _request_json(
+        "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
+    )
+    usage = {key: response.get("usage", {}).get(key, 0)
+             for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
+    content, truncated = _completion_content(response)
     parsed = None if truncated else _parse_json(content)
+    retried = parsed is None
+    if retried:
+        # Regenerate from the image, never apply guessed closures or incomplete actions.
+        retry_request = {
+            **request,
+            "messages": [
+                {"role": "system", "content": SYSTEM_PROMPT + (
+                    "\nPrevious output was incomplete. Start over, at most 3 geometry edits. "
+                    "Use ID lists for keep/remove/uncertain. Compact complete JSON only."
+                )},
+                messages[-1],
+            ],
+        }
+        response = _request_json(
+            "POST", f"{base_url.rstrip('/')}/chat/completions", retry_request, timeout, api_key
+        )
+        usage = {key: value + response.get("usage", {}).get(key, 0) for key, value in usage.items()}
+        content, truncated = _completion_content(response)
+        parsed = None if truncated else _parse_json(content)
     base_annotations = [annotation for provider in providers for annotation in run.providers[provider].annotations]
     refined, removed_ids, notes = apply_actions(parsed, base_annotations, run.image_size)
+    review = [marked(a, "kept") for a in refined]
+    decisions = {"refined_annotations": refined, "review_annotations": review,
+                 "removed_ids": removed_ids, "notes": notes, "invalid_decisions": 0}
+    if parsed is not None and any(k in parsed for k in ("keep", "remove", "uncertain", "edit", "merge", "add")):
+        decisions = apply_review(parsed, aliases, run.image_size)
     if parsed is None:
         notes = (
             "Ответ VLM оборван по лимиту токенов. Выберите меньше моделей или сузьте задачу."
@@ -120,10 +109,21 @@ def review_run(
         "model": model,
         "content": content,
         "parsed": parsed is not None,
-        "notes": notes,
-        "removed_ids": removed_ids,
-        "refined_annotations": refined,
+        "retried": retried,
+        **decisions,
+        "notes": notes if parsed is None else decisions["notes"],
+        "usage": usage,
+        "context_chars": len(user_text),
+        "compact_review": {"coordinates": "normalized_0_1", "candidates": detections, "decisions": parsed},
     }
+
+
+def _completion_content(response: dict[str, Any]) -> tuple[str, bool]:
+    try:
+        choice = response["choices"][0]
+        return str(choice["message"]["content"]), choice.get("finish_reason") == "length"
+    except (KeyError, IndexError, TypeError) as error:
+        raise LMStudioError("LM Studio returned no assistant content") from error
 
 
 def apply_actions(
@@ -169,25 +169,6 @@ def apply_actions(
     return list(current.values()), removed, str(payload.get("notes", ""))
 
 
-def _detection_context(run: RunResult, providers: list[str]) -> list[dict[str, Any]]:
-    return [
-        {
-            "provider": provider,
-            "model": run.providers[provider].model,
-            "annotations": [
-                {
-                    "id": annotation.id,
-                    "label": annotation.label,
-                    "score": round(annotation.score, 3),
-                    "bbox_xywh": [round(value, 1) for value in annotation.bbox_xywh],
-                }
-                for annotation in run.providers[provider].annotations
-            ],
-        }
-        for provider in providers
-    ]
-
-
 def _annotation_from_payload(
     payload: dict[str, Any], image_size: list[int], fallback_id: str | None = None
 ) -> Annotation | None:
@@ -220,6 +201,12 @@ def _clamp_polygon(
 ) -> list[list[float]] | None:
     if polygon is None:
         return None
+    if isinstance(polygon, list) and len(polygon) == 1 and isinstance(polygon[0], list):
+        polygon = polygon[0]
+    if isinstance(polygon, list) and polygon and all(isinstance(v, (int, float)) for v in polygon):
+        if len(polygon) % 2:
+            return None
+        polygon = [polygon[i:i + 2] for i in range(0, len(polygon), 2)]
     if not isinstance(polygon, list) or len(polygon) < 3:
         return None
     points: list[list[float]] = []
@@ -243,8 +230,11 @@ def _parse_json(content: str) -> dict[str, Any] | None:
         return None
     if not isinstance(value, dict):
         return None
-    if not any(isinstance(value.get(key), list) for key in ("actions", "annotations", "final_annotations")):
+    if not any(isinstance(value.get(key), list) for key in ("actions", "annotations", "final_annotations", "keep", "remove", "uncertain", "edit", "merge", "add")):
         return None
+    for key in ("keep", "remove", "uncertain", "edit", "merge", "add"):
+        if key in value and not isinstance(value[key], list):
+            return None
     return value
 
 

@@ -1,6 +1,6 @@
 const state = {
   health: null, result: null, filters: {},
-  llm: { models: [], messages: [], refinedAnnotations: [], notes: '', model: '' },
+  llm: { models: [], messages: [], refinedAnnotations: [], reviewAnnotations: [], reviewFilters: {}, compactReview: null, notes: '', model: '' },
 };
 const elements = {
   image: document.querySelector('#image-select'), providers: document.querySelector('#providers'),
@@ -16,6 +16,7 @@ const elements = {
   llmPreview: document.querySelector('#llm-preview'), llmPreviewCount: document.querySelector('#llm-preview-count'),
   llmSource: document.querySelector('#llm-source'), llmCanvas: document.querySelector('#llm-canvas-wrap'),
   llmOverlay: document.querySelector('#llm-overlay'),
+  llmResultMessage: document.querySelector('#llm-result-message'),
 };
 const colors = {
   ppocr6: '#16a085',
@@ -23,6 +24,10 @@ const colors = {
   rfdetr_historical: '#dc5a8a', docufcn: '#5378d8', eynollah_textline: '#c45a35',
 };
 const classColors = ['#f36f38', '#29b6a6', '#9b73e8', '#e2b93b', '#dc5a8a', '#5378d8'];
+const reviewStyles = {
+  kept: ['#159447', 'Верно'], removed: ['#de3c3c', 'Удалено'], uncertain: ['#ce9500', 'Сомнительно'],
+  modified: ['#1675db', 'Исправлено'], merged: ['#884bd8', 'Объединено'], added: ['#009d99', 'Добавлено'],
+};
 const providerTitles = {
   ppocr6: 'PP-OCRv6 Medium Det',
   ppocr: 'PP-OCRv5 Server', mask2former: 'Mask2Former', sam2: 'SAM 2.1', yolo26: 'YOLO26-seg',
@@ -110,8 +115,11 @@ function showResult(result) {
   Object.entries(result.providers).forEach(([name, item]) => ensureFilter(name, item.annotations));
   state.llm.messages = [];
   state.llm.refinedAnnotations = [];
+  state.llm.reviewAnnotations = [];
+  state.llm.compactReview = null;
   state.llm.notes = '';
   elements.llmPreview.hidden = true;
+  elements.llmResultMessage.textContent = '';
   elements.llmApply.checked = false;
   elements.llmApply.disabled = true;
   elements.llmExport.disabled = true;
@@ -182,15 +190,18 @@ function drawLlmPreview() {
   const context = canvas.getContext('2d');
   if (!context) return;
   context.setTransform(ratio, 0, 0, ratio, 0, 0);
-  state.llm.refinedAnnotations.forEach(annotation => {
-    drawAnnotation(context, { ...annotation, polygon: null }, '#ef7d32', imageRect, wrapRect, state.result);
+  state.llm.reviewAnnotations.forEach(annotation => {
+    const status = annotation.attributes?.review_status || 'kept';
+    if (state.llm.reviewFilters[status] === false) return;
+    context.setLineDash(status === 'removed' ? [6, 4] : []);
+    drawAnnotation(context, { ...annotation, polygon: null }, reviewStyles[status]?.[0] || '#ef7d32', imageRect, wrapRect, state.result);
   });
 }
 function showLlmPreview(parsed) {
   elements.llmPreview.hidden = !parsed;
   if (!parsed) return;
-  elements.llmPreviewCount.textContent = state.llm.refinedAnnotations.length
-    ? `Итоговых объектов: ${state.llm.refinedAnnotations.length}` : 'Итоговых объектов: 0 — все боксы удалены';
+  const counts = Object.entries(reviewStyles).map(([status, style]) => `${style[1]}: ${state.llm.reviewAnnotations.filter(a => (a.attributes?.review_status || 'kept') === status).length}`);
+  elements.llmPreviewCount.textContent = counts.join(' · ');
   elements.llmSource.onload = drawLlmPreview;
   elements.llmSource.src = imageUrl(state.result.image_name);
   requestAnimationFrame(drawLlmPreview);
@@ -250,9 +261,14 @@ async function sendToLlm() {
     });
     if (data.parsed) state.llm.messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: data.content });
     state.llm.refinedAnnotations = data.refined_annotations || [];
+    state.llm.reviewAnnotations = data.review_annotations || state.llm.refinedAnnotations;
+    state.llm.compactReview = data.compact_review;
     state.llm.notes = data.notes || '';
     elements.llmResponse.textContent = data.content;
-    elements.llmStatus.textContent = data.parsed ? `Готово: ${state.llm.refinedAnnotations.length} итоговых объектов` : data.notes || 'VLM ответил, но JSON не распознан.';
+    elements.llmStatus.textContent = data.parsed ? `Принято: ${state.llm.refinedAnnotations.length}; проверено объектов: ${state.llm.reviewAnnotations.length}${data.usage?.total_tokens ? '; токенов: ' + data.usage.total_tokens : ''}` : data.notes || 'VLM ответил, но JSON не распознан.';
+    elements.llmResultMessage.textContent = data.parsed
+      ? `${data.retried ? 'Ответ получен после автоматического повтора. ' : ''}${data.notes || ''}${data.invalid_decisions ? ' Некорректных решений пропущено: ' + data.invalid_decisions : ''}`
+      : `Итоговое изображение не построено: ${data.notes || 'незавершённый JSON'}. Исходная разметка сохранена.`;
     elements.llmApply.disabled = !data.parsed;
     elements.llmExport.disabled = !data.parsed;
     if (!data.parsed) elements.llmApply.checked = false;
@@ -266,7 +282,7 @@ function exportLlmResult() {
   const payload = {
     schema_version: '1.0', source: 'lm_studio', model: state.llm.model,
     image_name: state.result.image_name, image_size: state.result.image_size,
-    run_id: state.result.run_id, annotations: state.llm.refinedAnnotations, notes: state.llm.notes,
+    run_id: state.result.run_id, review: state.llm.compactReview, notes: state.llm.notes,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
@@ -298,6 +314,12 @@ elements.llmRefresh.addEventListener('click', () => loadLlmModels());
 elements.llmSend.addEventListener('click', sendToLlm);
 elements.llmApply.addEventListener('change', drawAnnotations);
 elements.llmExport.addEventListener('click', exportLlmResult);
+elements.llmPreview.addEventListener('change', event => {
+  const status = event.target.dataset.reviewStatus;
+  if (!status) return;
+  state.llm.reviewFilters[status] = event.target.checked;
+  drawLlmPreview();
+});
 elements.strip.addEventListener('change', (event) => {
   const target = event.target;
   const provider = target.dataset.visibleProvider || target.dataset.classProvider || target.dataset.colorProvider;
