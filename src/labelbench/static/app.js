@@ -13,6 +13,9 @@ const elements = {
   llmPrompt: document.querySelector('#llm-prompt'), llmSend: document.querySelector('#llm-send'),
   llmStatus: document.querySelector('#llm-status'), llmResponse: document.querySelector('#llm-response'),
   llmApply: document.querySelector('#llm-apply'), llmExport: document.querySelector('#llm-export'),
+  llmPreview: document.querySelector('#llm-preview'), llmPreviewCount: document.querySelector('#llm-preview-count'),
+  llmSource: document.querySelector('#llm-source'), llmCanvas: document.querySelector('#llm-canvas-wrap'),
+  llmOverlay: document.querySelector('#llm-overlay'),
 };
 const colors = {
   ppocr6: '#16a085',
@@ -108,6 +111,7 @@ function showResult(result) {
   state.llm.messages = [];
   state.llm.refinedAnnotations = [];
   state.llm.notes = '';
+  elements.llmPreview.hidden = true;
   elements.llmApply.checked = false;
   elements.llmApply.disabled = true;
   elements.llmExport.disabled = true;
@@ -157,7 +161,7 @@ function drawAnnotations() {
   if (!context) return;
   context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
   context.clearRect(0, 0, wrapRect.width, wrapRect.height);
-  if (elements.llmApply.checked && state.llm.refinedAnnotations.length) {
+  if (elements.llmApply.checked && !elements.llmApply.disabled) {
     state.llm.refinedAnnotations.forEach((annotation) => drawAnnotation(context, annotation, '#ef7d32', imageRect, wrapRect, result));
     return;
   }
@@ -166,6 +170,30 @@ function drawAnnotations() {
       drawAnnotation(context, annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result);
     });
   });
+}
+function drawLlmPreview() {
+  if (!state.result || elements.llmPreview.hidden || !elements.llmSource.naturalWidth) return;
+  const wrapRect = elements.llmCanvas.getBoundingClientRect();
+  const imageRect = elements.llmSource.getBoundingClientRect();
+  const canvas = elements.llmOverlay;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(wrapRect.width * ratio));
+  canvas.height = Math.max(1, Math.round(wrapRect.height * ratio));
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  state.llm.refinedAnnotations.forEach(annotation => {
+    drawAnnotation(context, { ...annotation, polygon: null }, '#ef7d32', imageRect, wrapRect, state.result);
+  });
+}
+function showLlmPreview(parsed) {
+  elements.llmPreview.hidden = !parsed;
+  if (!parsed) return;
+  elements.llmPreviewCount.textContent = state.llm.refinedAnnotations.length
+    ? `Итоговых объектов: ${state.llm.refinedAnnotations.length}` : 'Итоговых объектов: 0 — все боксы удалены';
+  elements.llmSource.onload = drawLlmPreview;
+  elements.llmSource.src = imageUrl(state.result.image_name);
+  requestAnimationFrame(drawLlmPreview);
 }
 function exportFiltered() {
   if (!state.result) return;
@@ -225,14 +253,16 @@ async function sendToLlm() {
     state.llm.notes = data.notes || '';
     elements.llmResponse.textContent = data.content;
     elements.llmStatus.textContent = data.parsed ? `Готово: ${state.llm.refinedAnnotations.length} итоговых объектов` : data.notes || 'VLM ответил, но JSON не распознан.';
-    elements.llmApply.disabled = !state.llm.refinedAnnotations.length;
-    elements.llmExport.disabled = !state.llm.refinedAnnotations.length;
+    elements.llmApply.disabled = !data.parsed;
+    elements.llmExport.disabled = !data.parsed;
+    if (!data.parsed) elements.llmApply.checked = false;
+    showLlmPreview(data.parsed);
     drawAnnotations();
   } catch (error) { elements.llmStatus.textContent = `Ошибка VLM: ${error.message}`; }
   finally { updateLlmEnabled(); }
 }
 function exportLlmResult() {
-  if (!state.result || !state.llm.refinedAnnotations.length) return;
+  if (!state.result || elements.llmExport.disabled) return;
   const payload = {
     schema_version: '1.0', source: 'lm_studio', model: state.llm.model,
     image_name: state.result.image_name, image_size: state.result.image_size,
@@ -281,4 +311,5 @@ elements.strip.addEventListener('change', (event) => {
 });
 elements.export.addEventListener('click', exportFiltered);
 window.addEventListener('resize', drawAnnotations);
+window.addEventListener('resize', drawLlmPreview);
 Promise.all([loadHealth(), loadImages(), loadLlmModels()]).catch(showError);

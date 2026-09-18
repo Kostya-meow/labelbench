@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LabelBench / Auto Annotation</title>
-  <link rel="stylesheet" href="/static/style.css?v=efc5aae">
+  <link rel="stylesheet" href="/static/style.css?v=vlm-preview">
 </head>
 <body>
   <header class="masthead">
@@ -56,12 +56,19 @@
         <textarea id="llm-prompt" rows="4">Проверь найденные text_line на изображении. Удали явные false positive, исправь границы и добавь пропущенные строки. Сохрани правильные id.</textarea>
         <div class="llm-actions"><button id="llm-send" class="run-button" disabled>Отправить в VLM <span>→</span></button><label class="apply-control"><input id="llm-apply" type="checkbox" disabled> показывать улучшенную разметку</label><button id="llm-export" class="export-button" disabled>Скачать VLM JSON</button></div>
         <pre id="llm-response" class="llm-response">Ответ VLM появится здесь.</pre>
+        <section id="llm-preview" class="llm-preview" hidden>
+          <div class="llm-head"><h3>Итоговая разметка VLM</h3><span id="llm-preview-count" class="llm-status"></span></div>
+          <div class="canvas-wrap loaded" id="llm-canvas-wrap">
+            <img id="llm-source" alt="Изображение с итоговыми боксами VLM">
+            <canvas id="llm-overlay" aria-label="Итоговые боксы VLM"></canvas>
+          </div>
+        </section>
       </section>
     </section>
   </main>
   <template id="provider-template">
     <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
   </template>
-  <script src="/static/app.js?v=overlay-checked-fix"></script>
+  <script src="/static/app.js?v=vlm-preview"></script>
 </body>
 </html>

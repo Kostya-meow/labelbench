@@ -70,5 +70,9 @@ button { cursor:pointer; }
 .llm-actions .run-button { flex:0 0 auto; }
 .apply-control { display:flex; align-items:center; gap:5px; color:var(--muted); font:10px 'DM Mono',monospace; }
 .llm-response { max-height:260px; margin:14px 0 0; padding:12px; overflow:auto; white-space:pre-wrap; background:#16221d; color:#e6ead9; font:10px/1.45 'DM Mono',monospace; }
+.llm-preview { margin-top:18px; min-width:0; }
+.llm-preview[hidden] { display:none; }
+.llm-preview .canvas-wrap { flex:none; min-height:0; }
+.llm-preview img { width:100%; height:auto; max-height:none; }
 .result-empty { grid-column:1/-1; padding:14px; border:1px dashed var(--line); color:var(--muted); font:11px 'DM Mono',monospace; }
 @media(max-width:760px) { .masthead { min-height:90px; } h1 { font-size:40px; } main { grid-template-columns:1fr; }.control-panel { border-right:0; border-bottom:1px solid var(--line); }.legend-wrap { margin-top:0; }.viewer { padding:24px 18px; }.canvas-wrap { min-height:300px; }.result-strip { grid-template-columns:1fr; }.device { max-width:150px; }.llm-config { grid-template-columns:1fr; }.llm-status { text-align:left; } }

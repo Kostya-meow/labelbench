@@ -64,10 +64,25 @@ def main() -> None:
             assert response.value.status == 200, reply
             assert reply['parsed'], reply
             assert isinstance(json.loads(reply['content'])['actions'], list), reply['content']
+            final_ink = ink.replace('#overlay', '#llm-overlay')
+            page.wait_for_function(f"({final_ink})() > 100")
+            assert page.locator('#llm-preview').is_visible()
+            assert not page.locator('#llm-apply').is_checked()
+            page.locator('#llm-preview').screenshot(path=str(output / 'vlm-final-boxes.png'))
+            page.set_viewport_size({"width": 1200, "height": 900})
+            page.wait_for_function(f"({final_ink})() > 100")
             page.locator('#llm-apply').check()
             page.wait_for_function(f"({ink})() > 100")
             (output / 'qwen-review.json').write_text(json.dumps(reply, ensure_ascii=False, indent=2), encoding='utf-8')
             page.screenshot(path=str(output / 'qwen-browser.png'), full_page=True)
+            # Empty valid results stay visible, and a new run clears the old preview.
+            page.evaluate("state.llm.refinedAnnotations = []; showLlmPreview(true)")
+            page.wait_for_function(f"({final_ink})() === 0")
+            assert page.locator('#llm-preview').is_visible()
+            page.evaluate("showLlmPreview(false)")
+            assert page.locator('#llm-preview').is_hidden()
+            page.evaluate("showLlmPreview(true); showResult(state.result)")
+            assert page.locator('#llm-preview').is_hidden()
         assert not errors, errors
         print(json.dumps({"colored_pixels": colored, "page_errors": errors, "filters_resize_cached": "passed"}))
         browser.close()
