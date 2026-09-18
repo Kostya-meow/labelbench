@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -100,6 +101,14 @@ def create_run(request: RunRequest):
         raise HTTPException(status_code=404, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
+    except subprocess.CalledProcessError as error:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"Inference worker failed with exit code {error.returncode}. "
+                "Запустите сервер через bat\\START.bat, чтобы подключились отдельные GPU-окружения."
+            ),
+        ) from error
     except RuntimeError as error:
         raise HTTPException(status_code=503, detail=str(error)) from error
 

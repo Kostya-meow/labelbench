@@ -36,8 +36,12 @@ PyTorch и Paddle не конфликтовали в одном Windows-проц
 ### Проверка разметки через LM Studio
 
 В LM Studio запустите локальный сервер на `http://localhost:1234` и загрузите
-модель **PaddleOCR VL 1.6 GGUF Mmproj GGUF**. В LabelBench она должна появиться
-с идентификатором `paddleocr-vl-1.6`. После обычного inference выберите нужные
+основную модель **PaddleOCR VL 1.6 GGUF**. Файл **Mmproj GGUF** подключите в
+диалоге загрузки как projector. Сам файл `mmproj` нельзя выбирать как основную
+модель: он является CLIP/projector-файлом. Ошибка `CLIP cannot be used as main
+model, use it with --mmproj instead` означает, что выбран именно `mmproj`.
+В LabelBench основная модель должна появиться с идентификатором
+`paddleocr-vl-1.6`. После обычного inference выберите нужные
 provider-ы, задайте промпт и нажмите «Отправить в VLM». В запросе передаются
 исходное изображение, результаты выбранных моделей и история текущего диалога.
 

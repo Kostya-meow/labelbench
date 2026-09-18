@@ -26,8 +26,10 @@ const providerTitles = {
 
 async function json(url, options) {
   const response = await fetch(url, options);
-  const data = await response.json();
-  if (!response.ok) throw new Error(data.detail || 'Ошибка API');
+  const body = await response.text();
+  let data;
+  try { data = body ? JSON.parse(body) : {}; } catch { data = {}; }
+  if (!response.ok) throw new Error(data.detail || body || `Ошибка API (${response.status})`);
   return data;
 }
 function escapeHtml(value) { const node = document.createElement('span'); node.textContent = value; return node.innerHTML; }
@@ -81,7 +83,9 @@ function renderResultStrip() {
     const filter = state.filters[name];
     const labels = [...new Set(item.annotations.map((annotation) => annotation.label))];
     const controls = labels.map((label) => `<label class="class-control"><input type="checkbox" data-class-provider="${escapeHtml(name)}" data-class-label="${escapeHtml(label)}"${filter.labels[label] ? ' checked' : ''}><input type="color" value="${filter.colors[label]}" data-color-provider="${escapeHtml(name)}" data-color-label="${escapeHtml(label)}" title="Цвет ${escapeHtml(label)}"><span>${escapeHtml(label)}</span></label>`).join('');
-    return `<article class="result-card" style="--card-color:${colors[name] || '#16221d'}"><div class="result-card-head"><strong>${escapeHtml(providerTitles[name] || name)}</strong><label class="visibility-control"><input type="checkbox" data-visible-provider="${escapeHtml(name)}"${filter.visible ? ' checked' : ''}> показывать</label></div><span>${visibleAnnotations(name, item).length}/${item.annotations.length} оставлено<br>${item.elapsed_seconds.toFixed(2)} sec</span><div class="class-controls">${controls || '<small>Нет сегментов</small>'}</div></article>`;
+    const recognized = visibleAnnotations(name, item).map((annotation) => annotation.text?.trim()).filter(Boolean);
+    const textPreview = recognized.length ? `<div class="recognized-text"><b>Распознано:</b> ${escapeHtml(recognized.join(' · ').slice(0, 1200))}${recognized.join(' · ').length > 1200 ? '…' : ''}</div>` : '';
+    return `<article class="result-card" style="--card-color:${colors[name] || '#16221d'}"><div class="result-card-head"><strong>${escapeHtml(providerTitles[name] || name)}</strong><label class="visibility-control"><input type="checkbox" data-visible-provider="${escapeHtml(name)}"${filter.visible ? ' checked' : ''}> показывать</label></div><span>${visibleAnnotations(name, item).length}/${item.annotations.length} оставлено<br>${item.elapsed_seconds.toFixed(2)} sec</span><div class="class-controls">${controls || '<small>Нет сегментов</small>'}</div>${textPreview}</article>`;
   });
   elements.strip.innerHTML = cards.join('');
 }
@@ -108,11 +112,12 @@ function annotationShape(annotation, color, imageRect, wrapRect, result) {
   const sx = imageRect.width / result.image_size[0];
   const sy = imageRect.height / result.image_size[1];
   const [x, y, width, height] = annotation.bbox_xywh;
+  const caption = annotation.text?.trim() || annotation.label;
   if (annotation.polygon) {
     const points = annotation.polygon.map(([px, py]) => `${offsetX + px * sx},${offsetY + py * sy}`).join(' ');
-    return `<polygon points="${points}" fill="none" stroke="${color}" stroke-width="2.5"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.text || annotation.label)}</text>`;
+    return `<polygon points="${points}" fill="none" stroke="${color}" stroke-width="2.5"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(caption)}</text>`;
   }
-  return `<rect x="${offsetX + x * sx}" y="${offsetY + y * sy}" width="${width * sx}" height="${height * sy}" fill="${color}" fill-opacity=".08" stroke="${color}" stroke-width="2"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.label)}</text>`;
+  return `<rect x="${offsetX + x * sx}" y="${offsetY + y * sy}" width="${width * sx}" height="${height * sy}" fill="${color}" fill-opacity=".08" stroke="${color}" stroke-width="2"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(caption)}</text>`;
 }
 function drawAnnotations() {
   const result = state.result;
