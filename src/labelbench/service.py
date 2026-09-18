@@ -66,6 +66,7 @@ class AnnotationService:
         )
         combined_dir = self.settings.output_dir / "combined" / run_id
         combined_dir.mkdir(parents=True, exist_ok=True)
+        self._draw_combined_overlay(run_id, image_path, results)
         (combined_dir / "result.json").write_text(merged.model_dump_json(indent=2), encoding="utf-8")
         return merged
 
@@ -86,6 +87,19 @@ class AnnotationService:
         for annotation in result.annotations:
             self._draw_annotation(draw, annotation, color)
         target = self.settings.output_dir / result.provider / run_id / "overlay.png"
+        canvas.convert("RGB").save(target, quality=92)
+
+    def _draw_combined_overlay(
+        self, run_id: str, image_path: Path, results: dict[str, ProviderResult]
+    ) -> None:
+        with Image.open(image_path).convert("RGBA") as source:
+            canvas = source.copy()
+        draw = ImageDraw.Draw(canvas, "RGBA")
+        for result in results.values():
+            color = PROVIDER_COLORS.get(result.provider, "#ffffff")
+            for annotation in result.annotations:
+                self._draw_annotation(draw, annotation, color)
+        target = self.settings.output_dir / "combined" / run_id / "overlay.png"
         canvas.convert("RGB").save(target, quality=92)
 
     @staticmethod

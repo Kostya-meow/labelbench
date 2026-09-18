@@ -1,5 +1,6 @@
 const state = {
   health: null, result: null, filters: {},
+  backendFallbackShown: false,
   llm: { models: [], messages: [], refinedAnnotations: [], notes: '', model: '' },
 };
 const elements = {
@@ -91,6 +92,7 @@ function renderResultStrip() {
 }
 function showResult(result) {
   state.result = result;
+  state.backendFallbackShown = false;
   elements.title.textContent = result.image_name;
   elements.consensus.textContent = `${Math.round(result.consensus_score * 100)}%`;
   elements.source.onload = () => {
@@ -163,6 +165,20 @@ function drawAnnotations() {
       drawAnnotation(context, annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result);
     });
   });
+  window.setTimeout(() => {
+    if (state.backendFallbackShown || state.result !== result) return;
+    try {
+      const pixels = context.getImageData(0, 0, canvas.width, canvas.height).data;
+      let hasInk = false;
+      for (let index = 3; index < pixels.length; index += 4) {
+        if (pixels[index] > 8) { hasInk = true; break; }
+      }
+      if (!hasInk) {
+        state.backendFallbackShown = true;
+        elements.source.src = `/files/output/combined/${encodeURIComponent(result.run_id)}/overlay.png`;
+      }
+    } catch (error) { console.warn('Overlay fallback check failed', error); }
+  }, 250);
 }
 function exportFiltered() {
   if (!state.result) return;
