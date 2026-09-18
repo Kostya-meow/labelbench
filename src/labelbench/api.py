@@ -9,7 +9,8 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from labelbench.contracts import RunRequest
+from labelbench.contracts import LLMReviewRequest, RunRequest
+from labelbench.llm import LMStudioError, list_models, review_run
 from labelbench.registry import default_registry
 from labelbench.service import AnnotationService
 from labelbench.settings import Settings
@@ -52,6 +53,43 @@ def health() -> dict[str, object]:
 @app.get("/api/images")
 def images() -> dict[str, list[str]]:
     return {"images": service.list_images()}
+
+
+@app.get("/api/llm/models")
+def llm_models() -> dict[str, object]:
+    try:
+        models = list_models(settings.lm_studio_url, settings.lm_studio_timeout)
+        return {"available": True, "base_url": settings.lm_studio_url, "models": models}
+    except LMStudioError as error:
+        return {"available": False, "base_url": settings.lm_studio_url, "models": [], "detail": str(error)}
+
+
+@app.post("/api/llm/review")
+def llm_review(request: LLMReviewRequest) -> dict[str, object]:
+    try:
+        run = service.load_run(request.run_id)
+        unknown = set(request.providers) - run.providers.keys()
+        if unknown:
+            raise HTTPException(status_code=400, detail=f"Providers are not in run: {', '.join(sorted(unknown))}")
+        image_path = service.settings.images_dir / run.image_name
+        return review_run(
+            settings.lm_studio_url,
+            settings.lm_studio_api_key,
+            settings.lm_studio_timeout,
+            request.model,
+            request.prompt,
+            request.history,
+            run,
+            image_path,
+            request.providers,
+        )
+    except FileNotFoundError as error:
+        raise HTTPException(status_code=404, detail="Run or image not found") from error
+    except LMStudioError as error:
+        detail = str(error)
+        if "Failed to load model" in detail:
+            detail += " Откройте LM Studio, загрузите выбранную модель и дождитесь готовности сервера."
+        raise HTTPException(status_code=503, detail=detail) from error
 
 
 @app.post("/api/runs")

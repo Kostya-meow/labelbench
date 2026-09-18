@@ -14,6 +14,7 @@
   метками, confidence и происхождением;
 - показывает исходник, наложения моделей и предварительный consensus score;
 - после inference позволяет для каждого provider-а включать/выключать результат, выбирать цвет каждого класса сегмента и скачать оставленные аннотации отдельным JSON;
+- отправляет выбранные результаты вместе с изображением в локальный VLM через LM Studio и показывает улучшенную разметку отдельным слоем;
 - работает без загруженных ML-пакетов: интерфейс запускается, а статус сразу
   объясняет, какой provider недоступен и почему;
 - загружает веса при первом обращении в стандартный кэш Hugging Face/PaddleOCR.
@@ -31,6 +32,25 @@ PyTorch и Paddle не конфликтовали в одном Windows-проц
 
 Откройте <http://127.0.0.1:8000>, скопируйте изображения в `data/images/` и нажмите
 «Запустить выбранные». Веса заранее скачивает `bat\DOWNLOAD_WEIGHTS.bat`.
+
+### Проверка разметки через LM Studio
+
+В LM Studio запустите локальный сервер на `http://localhost:1234` и загрузите
+модель **PaddleOCR VL 1.6 GGUF Mmproj GGUF**. В LabelBench она должна появиться
+с идентификатором `paddleocr-vl-1.6`. После обычного inference выберите нужные
+provider-ы, задайте промпт и нажмите «Отправить в VLM». В запросе передаются
+исходное изображение, результаты выбранных моделей и история текущего диалога.
+
+Координаты имеют единый формат: начало в левом верхнем углу изображения,
+`bbox_xywh: [x, y, width, height]` в пикселях, polygon — список пар `[x, y]`.
+VLM возвращает JSON-действия `keep`, `remove`, `modify`, `add`; приложение
+проверяет границы, применяет их к исходным объектам и позволяет скачать
+`*_vlm.json`.
+
+Если модель видна в списке, но при отправке появляется `Failed to load model`,
+загрузите её кнопкой загрузки модели в LM Studio и дождитесь окончания загрузки.
+Список в `/v1/models` подтверждает наличие модели, но не гарантирует, что она
+уже загружена в VRAM.
 
 > **SAM 2.1:** для GPU-инференса Meta рекомендует WSL2/Linux; скрипт всё равно
 > поддерживает Windows, но CUDA extension может не собраться. Базовый inference
@@ -68,6 +88,9 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 `LABELBENCH_SAM2_POINTS_PER_SIDE`, `LABELBENCH_YOLO26_MODEL`,
 `LABELBENCH_RFDETR_CHECKPOINT`, `LABELBENCH_DOCUFCN_CHECKPOINT`,
 `LABELBENCH_EYNOLLAH_CHECKPOINT`, `LABELBENCH_EYNOLLAH_PYTHON`.
+Для LM Studio доступны `LABELBENCH_LM_STUDIO_URL` (по умолчанию
+`http://localhost:1234/v1`), `LABELBENCH_LM_STUDIO_API_KEY` и
+`LABELBENCH_LM_STUDIO_TIMEOUT`.
 
 ## API
 
@@ -76,6 +99,9 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 - `POST /api/runs` — запустить одно изображение: `{"image_name":"a.jpg","providers":["ppocr","sam2"]}`.
 - `GET /api/runs/{run_id}` — объединённый результат.
 - `GET /api/runs/{run_id}/overlay/{provider}` — наложение provider-а.
+- `GET /api/llm/models` — список моделей, опубликованных LM Studio.
+- `POST /api/llm/review` — отправить изображение и выбранные результаты в VLM;
+  ответ содержит `refined_annotations`, `notes` и исходный ответ модели.
 
 ## Как добавить ещё одну модель
 

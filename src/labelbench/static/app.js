@@ -1,10 +1,18 @@
-const state = { health: null, result: null, filters: {} };
+const state = {
+  health: null, result: null, filters: {},
+  llm: { models: [], messages: [], refinedAnnotations: [], notes: '', model: '' },
+};
 const elements = {
   image: document.querySelector('#image-select'), providers: document.querySelector('#providers'),
   run: document.querySelector('#run'), refresh: document.querySelector('#refresh'), status: document.querySelector('#run-status'),
   source: document.querySelector('#source'), canvas: document.querySelector('#canvas-wrap'), overlay: document.querySelector('#overlay'),
   title: document.querySelector('#image-title'), consensus: document.querySelector('#consensus'),
   strip: document.querySelector('#result-strip'), export: document.querySelector('#export'), device: document.querySelector('#device'), template: document.querySelector('#provider-template'),
+  llmModel: document.querySelector('#llm-model'), llmRefresh: document.querySelector('#llm-refresh'),
+  llmUrl: document.querySelector('#llm-url'),
+  llmPrompt: document.querySelector('#llm-prompt'), llmSend: document.querySelector('#llm-send'),
+  llmStatus: document.querySelector('#llm-status'), llmResponse: document.querySelector('#llm-response'),
+  llmApply: document.querySelector('#llm-apply'), llmExport: document.querySelector('#llm-export'),
 };
 const colors = {
   ppocr: '#f36f38', mask2former: '#29b6a6', sam2: '#9b73e8', yolo26: '#e2b93b',
@@ -84,8 +92,27 @@ function showResult(result) {
   elements.source.src = imageUrl(result.image_name);
   elements.source.onload = () => { elements.canvas.classList.add('loaded'); drawAnnotations(); };
   Object.entries(result.providers).forEach(([name, item]) => ensureFilter(name, item.annotations));
+  state.llm.messages = [];
+  state.llm.refinedAnnotations = [];
+  state.llm.notes = '';
+  elements.llmApply.checked = false;
+  elements.llmExport.disabled = true;
+  elements.llmResponse.textContent = 'Ответ VLM появится здесь.';
   renderResultStrip();
   elements.export.disabled = false;
+  updateLlmEnabled();
+}
+function annotationShape(annotation, color, imageRect, wrapRect, result) {
+  const offsetX = imageRect.left - wrapRect.left;
+  const offsetY = imageRect.top - wrapRect.top;
+  const sx = imageRect.width / result.image_size[0];
+  const sy = imageRect.height / result.image_size[1];
+  const [x, y, width, height] = annotation.bbox_xywh;
+  if (annotation.polygon) {
+    const points = annotation.polygon.map(([px, py]) => `${offsetX + px * sx},${offsetY + py * sy}`).join(' ');
+    return `<polygon points="${points}" fill="none" stroke="${color}" stroke-width="2.5"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.text || annotation.label)}</text>`;
+  }
+  return `<rect x="${offsetX + x * sx}" y="${offsetY + y * sy}" width="${width * sx}" height="${height * sy}" fill="${color}" fill-opacity=".08" stroke="${color}" stroke-width="2"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.label)}</text>`;
 }
 function drawAnnotations() {
   const result = state.result;
@@ -94,17 +121,9 @@ function drawAnnotations() {
   const wrapRect = elements.canvas.getBoundingClientRect();
   const offsetX = imageRect.left - wrapRect.left;
   const offsetY = imageRect.top - wrapRect.top;
-  const sx = imageRect.width / result.image_size[0];
-  const sy = imageRect.height / result.image_size[1];
-  const shapes = Object.entries(result.providers).flatMap(([provider, item]) => visibleAnnotations(provider, item).map((annotation) => {
-    const color = state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff';
-    const [x, y, width, height] = annotation.bbox_xywh;
-    if (annotation.polygon) {
-      const points = annotation.polygon.map(([px, py]) => `${offsetX + px * sx},${offsetY + py * sy}`).join(' ');
-      return `<polygon points="${points}" fill="none" stroke="${color}" stroke-width="2.5"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.text || annotation.label)}</text>`;
-    }
-    return `<rect x="${offsetX + x * sx}" y="${offsetY + y * sy}" width="${width * sx}" height="${height * sy}" fill="${color}" fill-opacity=".08" stroke="${color}" stroke-width="2"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(annotation.label)}</text>`;
-  }));
+  const shapes = state.llmApply.checked && state.llm.refinedAnnotations.length
+    ? state.llm.refinedAnnotations.map((annotation) => annotationShape(annotation, '#ef7d32', imageRect, wrapRect, result))
+    : Object.entries(result.providers).flatMap(([provider, item]) => visibleAnnotations(provider, item).map((annotation) => annotationShape(annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result)));
   elements.overlay.innerHTML = shapes.join('');
 }
 function exportFiltered() {
@@ -121,6 +140,65 @@ function exportFiltered() {
   link.click();
   URL.revokeObjectURL(link.href);
   elements.status.textContent = 'Оставленная разметка скачана в JSON.';
+}
+function updateLlmEnabled() {
+  elements.llmSend.disabled = !state.result || !state.llm.model || !elements.llmPrompt.value.trim();
+}
+async function loadLlmModels() {
+  elements.llmStatus.textContent = 'Проверяю LM Studio...';
+  try {
+    const data = await json('/api/llm/models');
+    elements.llmUrl.value = data.base_url || elements.llmUrl.value;
+    state.llm.models = data.models || [];
+    elements.llmModel.replaceChildren();
+    if (!state.llm.models.length) {
+      elements.llmModel.add(new Option('Модель не найдена', ''));
+      state.llm.model = '';
+      elements.llmStatus.textContent = data.detail || 'Запусти модель в LM Studio и обнови список.';
+    } else {
+      state.llm.model = state.llm.models[0];
+      state.llm.models.forEach((model) => elements.llmModel.add(new Option(model, model)));
+      elements.llmStatus.textContent = `LM Studio API: ${state.llm.models.length} моделей в списке`;
+    }
+  } catch (error) { elements.llmStatus.textContent = `LM Studio: ${error.message}`; }
+  updateLlmEnabled();
+}
+async function sendToLlm() {
+  if (!state.result) return;
+  elements.llmSend.disabled = true;
+  elements.llmStatus.textContent = 'VLM проверяет изображение и координаты...';
+  const prompt = elements.llmPrompt.value.trim();
+  try {
+    const data = await json('/api/llm/review', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        run_id: state.result.run_id, model: state.llm.model, prompt,
+        providers: Object.keys(state.result.providers), history: state.llm.messages.slice(-20),
+      }),
+    });
+    state.llm.messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: data.content });
+    state.llm.refinedAnnotations = data.refined_annotations || [];
+    state.llm.notes = data.notes || '';
+    elements.llmResponse.textContent = data.content;
+    elements.llmStatus.textContent = data.parsed ? `Готово: ${state.llm.refinedAnnotations.length} итоговых объектов` : 'VLM ответил, но JSON не распознан.';
+    elements.llmApply.disabled = !state.llm.refinedAnnotations.length;
+    elements.llmExport.disabled = !state.llm.refinedAnnotations.length;
+    drawAnnotations();
+  } catch (error) { elements.llmStatus.textContent = `Ошибка VLM: ${error.message}`; }
+  finally { updateLlmEnabled(); }
+}
+function exportLlmResult() {
+  if (!state.result || !state.llm.refinedAnnotations.length) return;
+  const payload = {
+    schema_version: '1.0', source: 'lm_studio', model: state.llm.model,
+    image_name: state.result.image_name, image_size: state.result.image_size,
+    run_id: state.result.run_id, annotations: state.llm.refinedAnnotations, notes: state.llm.notes,
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
+  link.download = `${state.result.image_name.replace(/[^a-z0-9._-]+/gi, '_')}_${state.result.run_id}_vlm.json`;
+  link.click(); URL.revokeObjectURL(link.href);
+  elements.llmStatus.textContent = 'Улучшенная разметка скачана в JSON.';
 }
 async function run() {
   elements.run.disabled = true;
@@ -140,6 +218,12 @@ elements.run.addEventListener('click', run);
 elements.refresh.addEventListener('click', () => loadImages().catch(showError));
 elements.image.addEventListener('change', updateRunEnabled);
 elements.providers.addEventListener('change', updateRunEnabled);
+elements.llmModel.addEventListener('change', () => { state.llm.model = elements.llmModel.value; updateLlmEnabled(); });
+elements.llmPrompt.addEventListener('input', updateLlmEnabled);
+elements.llmRefresh.addEventListener('click', () => loadLlmModels());
+elements.llmSend.addEventListener('click', sendToLlm);
+elements.llmApply.addEventListener('change', drawAnnotations);
+elements.llmExport.addEventListener('click', exportLlmResult);
 elements.strip.addEventListener('change', (event) => {
   const target = event.target;
   const provider = target.dataset.visibleProvider || target.dataset.classProvider || target.dataset.colorProvider;
@@ -152,4 +236,4 @@ elements.strip.addEventListener('change', (event) => {
 });
 elements.export.addEventListener('click', exportFiltered);
 window.addEventListener('resize', drawAnnotations);
-Promise.all([loadHealth(), loadImages()]).catch(showError);
+Promise.all([loadHealth(), loadImages(), loadLlmModels()]).catch(showError);

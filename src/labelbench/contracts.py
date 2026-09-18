@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +47,23 @@ class RunResult(BaseModel):
     image_size: list[int]
     providers: dict[str, ProviderResult]
     consensus_score: float = Field(ge=0.0, le=1.0)
+
+
+class LLMMessage(BaseModel):
+    """One text message preserved by the browser-side LM Studio session."""
+
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=20000)
+
+
+class LLMReviewRequest(BaseModel):
+    """Request for a VLM review of one completed annotation run."""
+
+    run_id: str = Field(min_length=1, max_length=64)
+    model: str = Field(min_length=1, max_length=256)
+    prompt: str = Field(min_length=1, max_length=12000)
+    providers: list[str] = Field(min_length=1, max_length=20)
+    history: list[LLMMessage] = Field(default_factory=list, max_length=20)
 
 
 def safe_child_path(root: Path, user_name: str) -> Path:

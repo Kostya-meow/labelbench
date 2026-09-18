@@ -24,6 +24,9 @@ class Settings:
     dla_python: Path
     eynollah_checkpoint: Path
     eynollah_python: Path
+    lm_studio_url: str
+    lm_studio_api_key: str
+    lm_studio_timeout: float
 
     @classmethod
     def from_environment(cls) -> "Settings":
@@ -78,6 +81,9 @@ class Settings:
                     root_dir / ".venv-eynollah" / "Scripts" / "python.exe",
                 )
             ).resolve(),
+            lm_studio_url=os.getenv("LABELBENCH_LM_STUDIO_URL", "http://localhost:1234/v1").rstrip("/"),
+            lm_studio_api_key=os.getenv("LABELBENCH_LM_STUDIO_API_KEY", "lm-studio"),
+            lm_studio_timeout=float(os.getenv("LABELBENCH_LM_STUDIO_TIMEOUT", "300")),
         )
 
     def ensure_directories(self) -> None:
