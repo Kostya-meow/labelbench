@@ -1,4 +1,4 @@
-"""PP-OCRv5 Server adapter using the PaddleOCR 3.x Python API."""
+"""PP-OCRv5 Server text-detection adapter using the PaddleOCR 3.x API."""
 
 from __future__ import annotations
 
@@ -44,34 +44,29 @@ class PPOCRProvider(AnnotationProvider):
             import torch  # noqa: F401  # ModelScope imports Torch; load its CPU DLLs first.
             import paddle  # noqa: F401
             # isort: on
-            from paddleocr import PaddleOCR
+            from paddleocr import TextDetection
 
             kwargs: dict[str, Any] = {
-                "ocr_version": "PP-OCRv5",
-                "use_doc_orientation_classify": False,
-                "use_doc_unwarping": False,
-                "use_textline_orientation": False,
+                "model_name": "PP-OCRv5_server_det",
             }
             if self._device != "auto":
                 kwargs["device"] = "gpu:0" if self._device == "cuda" else "cpu"
-            self._model = PaddleOCR(**kwargs)
+            self._model = TextDetection(**kwargs)
         return self._model
 
     def _annotate_local(self, image_path: Path) -> ProviderResult:
         started_at = time.perf_counter()
         with Image.open(image_path) as image:
             size = [image.width, image.height]
-        prediction = next(iter(self._load_model().predict(str(image_path))))
+        prediction = self._load_model().predict(str(image_path))[0]
         raw = prediction.get("res", prediction) if hasattr(prediction, "get") else prediction
-        polygons = raw.get("rec_polys", raw.get("dt_polys", []))
-        texts = raw.get("rec_texts", [])
-        scores = raw.get("rec_scores", raw.get("dt_scores", []))
+        polygons = raw.get("dt_polys", [])
+        scores = raw.get("dt_scores", [])
         annotations: list[Annotation] = []
         for index, polygon_value in enumerate(polygons):
             polygon = [[float(x), float(y)] for x, y in polygon_value]
             xs, ys = zip(*polygon, strict=True)
             score = float(scores[index]) if index < len(scores) else 1.0
-            text = str(texts[index]) if index < len(texts) else None
             annotations.append(
                 Annotation(
                     id=f"ppocr-{uuid.uuid4().hex[:12]}",
@@ -79,7 +74,6 @@ class PPOCRProvider(AnnotationProvider):
                     score=max(0.0, min(score, 1.0)),
                     bbox_xywh=[min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)],
                     polygon=polygon,
-                    text=text,
                     provider=self.name,
                 )
             )

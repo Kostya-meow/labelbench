@@ -93,8 +93,16 @@ function showResult(result) {
   state.result = result;
   elements.title.textContent = result.image_name;
   elements.consensus.textContent = `${Math.round(result.consensus_score * 100)}%`;
+  elements.source.onload = () => {
+    elements.canvas.classList.add('loaded');
+    requestAnimationFrame(drawAnnotations);
+  };
+  elements.overlay.setAttribute('preserveAspectRatio', 'none');
   elements.source.src = imageUrl(result.image_name);
-  elements.source.onload = () => { elements.canvas.classList.add('loaded'); drawAnnotations(); };
+  if (elements.source.complete) {
+    elements.canvas.classList.add('loaded');
+    requestAnimationFrame(drawAnnotations);
+  }
   Object.entries(result.providers).forEach(([name, item]) => ensureFilter(name, item.annotations));
   state.llm.messages = [];
   state.llm.refinedAnnotations = [];
@@ -124,6 +132,7 @@ function drawAnnotations() {
   if (!result) return;
   const imageRect = elements.source.getBoundingClientRect();
   const wrapRect = elements.canvas.getBoundingClientRect();
+  elements.overlay.setAttribute('viewBox', `0 0 ${wrapRect.width} ${wrapRect.height}`);
   const offsetX = imageRect.left - wrapRect.left;
   const offsetY = imageRect.top - wrapRect.top;
   const shapes = state.llmApply.checked && state.llm.refinedAnnotations.length

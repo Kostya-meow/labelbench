@@ -76,7 +76,7 @@ PaddlePaddle, GitHub, Hugging Face и Paddle model hosting. Каждый BAT м�
 
 | Provider | Роль | Вес по умолчанию |
 | --- | --- | --- |
-| `ppocr` | текстовые области и распознанный текст | PP-OCRv5 Server (PaddleOCR 3.x) |
+| `ppocr` | детекция текстовых областей и polygons, без OCR-текста | PP-OCRv5 Server detection (PaddleOCR 3.x) |
 | `mask2former` | panoptic/instance-кандидаты классов COCO | `facebook/mask2former-swin-large-coco-panoptic` |
 | `sam2` | class-agnostic object masks | `facebook/sam2.1-hiera-large` |
 | `yolo26` | COCO instance segmentation | `yolo26n-seg.pt` |
