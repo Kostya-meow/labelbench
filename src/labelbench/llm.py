@@ -88,9 +88,17 @@ def review_run(
         if "400" not in str(error):
             raise
         request.pop("response_format")
-        response = _request_json(
-            "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
-        )
+        try:
+            response = _request_json(
+                "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
+            )
+        except LMStudioError as retry_error:
+            if "does not support image inputs" in str(retry_error):
+                raise LMStudioError(
+                    f"{retry_error} Выберите vision-модель, например Qwen3-VL, "
+                    "а не text-only модель."
+                ) from retry_error
+            raise
     try:
         content = str(response["choices"][0]["message"]["content"])
     except (KeyError, IndexError, TypeError) as error:

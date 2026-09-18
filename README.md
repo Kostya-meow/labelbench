@@ -56,6 +56,10 @@ VLM возвращает JSON-действия `keep`, `remove`, `modify`, `add`
 Список в `/v1/models` подтверждает наличие модели, но не гарантирует, что она
 уже загружена в VRAM.
 
+Для проверки изображения используйте vision-модель, например `Qwen3-VL-4B`.
+Если LM Studio пишет `does not support image inputs`, выбрана text-only модель
+или основной GGUF без multimodal projector.
+
 > **SAM 2.1:** для GPU-инференса Meta рекомендует WSL2/Linux; скрипт всё равно
 > поддерживает Windows, но CUDA extension может не собраться. Базовый inference
 > обычно продолжает работать без extension, с ограниченным post-processing.

@@ -97,7 +97,6 @@ function showResult(result) {
     elements.canvas.classList.add('loaded');
     requestAnimationFrame(drawAnnotations);
   };
-  elements.overlay.setAttribute('preserveAspectRatio', 'none');
   elements.source.src = imageUrl(result.image_name);
   if (elements.source.complete) {
     elements.canvas.classList.add('loaded');
@@ -114,31 +113,54 @@ function showResult(result) {
   elements.export.disabled = false;
   updateLlmEnabled();
 }
-function annotationShape(annotation, color, imageRect, wrapRect, result) {
+function drawAnnotation(context, annotation, color, imageRect, wrapRect, result) {
   const offsetX = imageRect.left - wrapRect.left;
   const offsetY = imageRect.top - wrapRect.top;
   const sx = imageRect.width / result.image_size[0];
   const sy = imageRect.height / result.image_size[1];
   const [x, y, width, height] = annotation.bbox_xywh;
   const caption = annotation.text?.trim() || annotation.label;
+  context.beginPath();
   if (annotation.polygon) {
-    const points = annotation.polygon.map(([px, py]) => `${offsetX + px * sx},${offsetY + py * sy}`).join(' ');
-    return `<polygon points="${points}" fill="none" stroke="${color}" stroke-width="2.5"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(caption)}</text>`;
+    annotation.polygon.forEach(([px, py], index) => {
+      const pointX = offsetX + px * sx;
+      const pointY = offsetY + py * sy;
+      if (index === 0) context.moveTo(pointX, pointY);
+      else context.lineTo(pointX, pointY);
+    });
+    context.closePath();
+  } else {
+    context.rect(offsetX + x * sx, offsetY + y * sy, width * sx, height * sy);
   }
-  return `<rect x="${offsetX + x * sx}" y="${offsetY + y * sy}" width="${width * sx}" height="${height * sy}" fill="${color}" fill-opacity=".08" stroke="${color}" stroke-width="2"/><text x="${offsetX + x * sx + 3}" y="${offsetY + y * sy - 5}" fill="${color}">${escapeHtml(caption)}</text>`;
+  context.strokeStyle = color;
+  context.lineWidth = 2;
+  context.stroke();
+  context.fillStyle = color;
+  context.font = '10px DM Mono, monospace';
+  context.fillText(caption, offsetX + x * sx + 3, Math.max(10, offsetY + y * sy - 5));
 }
 function drawAnnotations() {
   const result = state.result;
   if (!result) return;
-  const imageRect = elements.source.getBoundingClientRect();
+  const canvas = elements.overlay;
   const wrapRect = elements.canvas.getBoundingClientRect();
-  elements.overlay.setAttribute('viewBox', `0 0 ${wrapRect.width} ${wrapRect.height}`);
-  const offsetX = imageRect.left - wrapRect.left;
-  const offsetY = imageRect.top - wrapRect.top;
-  const shapes = state.llmApply.checked && state.llm.refinedAnnotations.length
-    ? state.llm.refinedAnnotations.map((annotation) => annotationShape(annotation, '#ef7d32', imageRect, wrapRect, result))
-    : Object.entries(result.providers).flatMap(([provider, item]) => visibleAnnotations(provider, item).map((annotation) => annotationShape(annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result)));
-  elements.overlay.innerHTML = shapes.join('');
+  const imageRect = elements.source.getBoundingClientRect();
+  const pixelRatio = window.devicePixelRatio || 1;
+  canvas.width = Math.max(1, Math.round(wrapRect.width * pixelRatio));
+  canvas.height = Math.max(1, Math.round(wrapRect.height * pixelRatio));
+  const context = canvas.getContext('2d');
+  if (!context) return;
+  context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+  context.clearRect(0, 0, wrapRect.width, wrapRect.height);
+  if (state.llmApply.checked && state.llm.refinedAnnotations.length) {
+    state.llm.refinedAnnotations.forEach((annotation) => drawAnnotation(context, annotation, '#ef7d32', imageRect, wrapRect, result));
+    return;
+  }
+  Object.entries(result.providers).forEach(([provider, item]) => {
+    visibleAnnotations(provider, item).forEach((annotation) => {
+      drawAnnotation(context, annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result);
+    });
+  });
 }
 function exportFiltered() {
   if (!state.result) return;

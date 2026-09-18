@@ -1,5 +1,7 @@
-from labelbench.contracts import Annotation
-from labelbench.llm import apply_actions
+from pathlib import Path
+
+from labelbench.contracts import Annotation, ProviderResult, RunResult
+from labelbench.llm import apply_actions, review_run
 
 
 def test_apply_llm_actions_keeps_valid_contract_and_bounds() -> None:
@@ -65,3 +67,50 @@ def test_apply_llm_actions_clamps_polygon_and_skips_invalid_polygon() -> None:
 
     assert annotations[0].polygon == [[0.0, 0.0], [20.0, 0.0], [20.0, 20.0]]
     assert annotations[1].polygon is None
+
+
+def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Path) -> None:
+    image_path = tmp_path / "page.jpg"
+    image_path.write_bytes(b"fake-image")
+    run = RunResult(
+        run_id="run-1",
+        image_name="page.jpg",
+        image_size=[100, 80],
+        providers={
+            "ppocr": ProviderResult(
+                provider="ppocr",
+                model="PP-OCRv5 detection",
+                image_name="page.jpg",
+                image_size=[100, 80],
+                annotations=[
+                    Annotation(
+                        id="line-1",
+                        label="text_line",
+                        score=0.8,
+                        bbox_xywh=[10, 10, 40, 8],
+                        polygon=[[10, 10], [50, 10], [50, 18]],
+                        provider="ppocr",
+                    )
+                ],
+                elapsed_seconds=0.1,
+            )
+        },
+        consensus_score=0.0,
+    )
+    captured: dict[str, object] = {}
+
+    def fake_request(method: str, url: str, payload: dict[str, object] | None, timeout: float, api_key: str = "") -> dict[str, object]:
+        captured["method"] = method
+        captured["url"] = url
+        captured["payload"] = payload
+        return {"choices": [{"message": {"content": '{"actions":[{"action":"keep","id":"line-1"}]}'}}]}
+
+    monkeypatch.setattr("labelbench.llm._request_json", fake_request)
+    result = review_run("http://localhost:1234/v1", "key", 10.0, "qwen/qwen3-vl-4b", "check", [], run, image_path, ["ppocr"])
+
+    payload = captured["payload"]
+    assert isinstance(payload, dict)
+    message = payload["messages"][-1]
+    assert message["content"][1]["type"] == "image_url"
+    assert "Machine detections JSON" in message["content"][0]["text"]
+    assert result["refined_annotations"][0].id == "line-1"
