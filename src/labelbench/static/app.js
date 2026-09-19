@@ -1,6 +1,6 @@
 const state = {
   health: null, result: null, filters: {},
-  llm: { models: [], messages: [], refinedAnnotations: [], reviewAnnotations: [], reviewFilters: {}, compactReview: null, notes: '', model: '' },
+  llm: { busy: false, resultModel: '', models: [], messages: [], refinedAnnotations: [], reviewAnnotations: [], reviewFilters: {}, compactReview: null, notes: '', model: '' },
 };
 const elements = {
   image: document.querySelector('#image-select'), providers: document.querySelector('#providers'),
@@ -223,7 +223,7 @@ function exportFiltered() {
 }
 function updateLlmEnabled() {
   const hasProviders = state.result && Object.keys(state.result.providers).some(name => state.filters[name]?.visible !== false);
-  elements.llmSend.disabled = !hasProviders || !state.llm.model || !elements.llmPrompt.value.trim();
+  elements.llmSend.disabled = state.llm.busy || !hasProviders || !state.llm.model || !elements.llmPrompt.value.trim();
 }
 async function loadLlmModels() {
   elements.llmStatus.textContent = 'Проверяю LM Studio...';
@@ -238,7 +238,7 @@ async function loadLlmModels() {
       state.llm.model = '';
       elements.llmStatus.textContent = data.detail || 'Запусти модель в LM Studio и обнови список.';
     } else {
-      state.llm.model = state.llm.models.includes(previousModel) ? previousModel : (state.llm.models.find(model => /qwen.*vl/i.test(model)) || state.llm.models[0]);
+      state.llm.model = state.llm.models.includes(previousModel) ? previousModel : (state.llm.models.find(model => /qwen3-vl-4b/i.test(model)) || state.llm.models.find(model => /qwen.*vl/i.test(model)) || state.llm.models[0]);
       state.llm.models.forEach((model) => elements.llmModel.add(new Option(model, model)));
       elements.llmModel.value = state.llm.model;
       elements.llmStatus.textContent = `LM Studio API: ${state.llm.models.length} моделей в списке`;
@@ -247,25 +247,40 @@ async function loadLlmModels() {
   updateLlmEnabled();
 }
 async function sendToLlm() {
-  if (!state.result) return;
+  if (!state.result || state.llm.busy) return;
+  state.llm.busy = true;
+  const sourceRun = state.result;
+  const started = Date.now();
   elements.llmSend.disabled = true;
-  elements.llmStatus.textContent = 'VLM проверяет изображение и координаты...';
+  elements.llmApply.checked = false;
+  elements.llmApply.disabled = true;
+  elements.llmExport.disabled = true;
+  showLlmPreview(false);
+  drawAnnotations();
+  const showWaiting = () => { elements.llmStatus.textContent = `VLM проверяет полигоны по частям: ${Math.floor((Date.now() - started) / 1000)} сек. Ожидаю ответ…`; };
+  showWaiting();
+  const timer = setInterval(showWaiting, 1000);
   const prompt = elements.llmPrompt.value.trim();
   try {
     const data = await json('/api/llm/review', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         run_id: state.result.run_id, model: state.llm.model, prompt,
-        providers: Object.keys(state.result.providers).filter(name => state.filters[name]?.visible !== false), history: state.llm.messages.slice(-20),
+        providers: Object.keys(state.result.providers).filter(name => state.filters[name]?.visible !== false),
       }),
     });
-    if (data.parsed) state.llm.messages.push({ role: 'user', content: prompt }, { role: 'assistant', content: data.content });
+    clearInterval(timer);
+    if (state.result !== sourceRun) {
+      elements.llmStatus.textContent = 'Открыт другой результат. Запустите проверку VLM для него.';
+      return;
+    }
+    state.llm.resultModel = data.model;
     state.llm.refinedAnnotations = data.refined_annotations || [];
     state.llm.reviewAnnotations = data.review_annotations || state.llm.refinedAnnotations;
     state.llm.compactReview = data.compact_review;
     state.llm.notes = data.notes || '';
     elements.llmResponse.textContent = data.content;
-    elements.llmStatus.textContent = data.parsed ? `Принято: ${state.llm.refinedAnnotations.length}; проверено объектов: ${state.llm.reviewAnnotations.length}${data.usage?.total_tokens ? '; токенов: ' + data.usage.total_tokens : ''}` : data.notes || 'VLM ответил, но JSON не распознан.';
+    elements.llmStatus.textContent = data.parsed ? `${data.complete === false ? 'Частичный ответ. ' : ''}Принято: ${state.llm.refinedAnnotations.length}; частей: ${data.batch_count || 1}${data.usage?.total_tokens ? '; токенов: ' + data.usage.total_tokens : ''}` : data.notes || 'VLM ответил, но JSON не распознан.';
     elements.llmResultMessage.textContent = data.parsed
       ? `${data.retried ? 'Ответ получен после автоматического повтора. ' : ''}${data.notes || ''}${data.invalid_decisions ? ' Некорректных решений пропущено: ' + data.invalid_decisions : ''}`
       : `Итоговое изображение не построено: ${data.notes || 'незавершённый JSON'}. Исходная разметка сохранена.`;
@@ -275,12 +290,12 @@ async function sendToLlm() {
     showLlmPreview(data.parsed);
     drawAnnotations();
   } catch (error) { elements.llmStatus.textContent = `Ошибка VLM: ${error.message}`; }
-  finally { updateLlmEnabled(); }
+  finally { clearInterval(timer); state.llm.busy = false; updateLlmEnabled(); }
 }
 function exportLlmResult() {
   if (!state.result || elements.llmExport.disabled) return;
   const payload = {
-    schema_version: '1.0', source: 'lm_studio', model: state.llm.model,
+    schema_version: '1.0', source: 'lm_studio', model: state.llm.resultModel,
     image_name: state.result.image_name, image_size: state.result.image_size,
     run_id: state.result.run_id, review: state.llm.compactReview, notes: state.llm.notes,
   };

@@ -162,6 +162,13 @@ def pixel_polygon(value: Any, size: list[int]) -> list[list[float]]:
         if not all(math.isfinite(coordinate) and 0 <= coordinate <= 1 for coordinate in (x, y)):
             raise ValueError("Expected normalized coordinates")
         result.append([x * size[0], y * size[1]])
+    area = sum(
+        point[0] * result[(i + 1) % len(result)][1]
+        - result[(i + 1) % len(result)][0] * point[1]
+        for i, point in enumerate(result)
+    )
+    if abs(area) <= 1e-12:
+        raise ValueError("Polygon has zero area")
     return result
 
 
@@ -223,7 +230,7 @@ def apply_review(
             members = available(group_id)
             if (
                 not members
-                or not isinstance(candidate_index, int)
+                or type(candidate_index) is not int
                 or not 0 <= candidate_index < len(members)
             ):
                 raise ValueError("Candidate index is outside group")
@@ -251,17 +258,18 @@ def apply_review(
             members = available(group_id)
             if (
                 not members
-                or not isinstance(candidate_index, int)
+                or type(candidate_index) is not int
                 or not 0 <= candidate_index < len(members)
             ):
                 raise ValueError("Candidate index is outside group")
             alias = members[candidate_index]
+            updated = with_geometry(
+                aliases[alias], pixel_polygon(coordinates, size), "modified", group_id
+            )
             decided_groups.add(group_id)
             for member in members:
                 current[member] = marked(aliases[member], "removed", group_id)
-            current[alias] = with_geometry(
-                aliases[alias], pixel_polygon(coordinates, size), "modified", group_id
-            )
+            current[alias] = updated
         except (TypeError, ValueError):
             issues += 1
 
@@ -271,17 +279,18 @@ def apply_review(
             members = available(group_id)
             if not members:
                 raise ValueError("Unknown group")
-            decided_groups.add(group_id)
-            for member in members:
-                current[member] = marked(aliases[member], "removed", group_id)
             synthetic_id = f"vlm-merge-{group_id}"
-            current[synthetic_id] = with_geometry(
+            updated = with_geometry(
                 aliases[members[0]],
                 pixel_polygon(coordinates, size),
                 "merged",
                 group_id,
                 synthetic_id,
             )
+            decided_groups.add(group_id)
+            for member in members:
+                current[member] = marked(aliases[member], "removed", group_id)
+            current[synthetic_id] = updated
         except (TypeError, ValueError):
             issues += 1
 

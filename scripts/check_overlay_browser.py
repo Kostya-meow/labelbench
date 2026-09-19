@@ -9,7 +9,46 @@ import argparse
 import json
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import Page, Route, sync_playwright
+
+
+def check_vlm_failure_states(page: Page) -> None:
+    """Exercise network/partial failures without asking the real model again."""
+    page.evaluate("state.llm.model = 'test-vlm'; updateLlmEnabled()")
+    endpoint = '**/api/llm/review'
+    page.route(endpoint, lambda route: route.fulfill(status=503, body='Internal Server Error'))
+    page.locator('#llm-send').click()
+    page.wait_for_function("document.querySelector('#llm-status').textContent.includes('Internal Server Error')")
+    assert page.locator('#llm-preview').is_hidden()
+    assert page.locator('#llm-apply').is_disabled()
+    assert page.locator('#llm-send').is_enabled()
+    page.unroute(endpoint)
+    reply = page.evaluate("""() => ({
+      model: 'test-vlm', parsed: true, complete: false, batch_count: 2,
+      content: '{"uncertain":[0]}', notes: 'Partial test response',
+      refined_annotations: [],
+      review_annotations: Object.values(state.result.providers)[0].annotations.slice(0, 1)
+        .map(a => ({...a, attributes: {...a.attributes, review_status: 'uncertain'}})),
+    })""")
+    page.route(endpoint, lambda route: route.fulfill(json=reply))
+    page.locator('#llm-send').click()
+    page.wait_for_function("document.querySelector('#llm-status').textContent.includes('Частичный ответ')")
+    assert page.locator('#llm-preview').is_visible()
+    assert not page.locator('#llm-apply').is_checked()
+    page.unroute(endpoint)
+
+    def stale_response(route: Route) -> None:
+        page.evaluate("updateLlmEnabled()")
+        assert page.locator('#llm-send').is_disabled()
+        page.evaluate("showResult({...state.result})")
+        route.fulfill(json=reply)
+
+    page.route(endpoint, stale_response)
+    page.locator('#llm-send').click()
+    page.wait_for_function("document.querySelector('#llm-status').textContent.includes('Открыт другой результат')")
+    assert page.locator('#llm-preview').is_hidden()
+    assert page.locator('#llm-apply').is_disabled()
+    page.unroute(endpoint)
 
 
 def main() -> None:
@@ -26,9 +65,13 @@ def main() -> None:
         page.on("pageerror", lambda error: errors.append(str(error)))
         page.goto("http://127.0.0.1:8000/")
         page.wait_for_load_state("networkidle")
+        if page.locator('#llm-model option[value="qwen/qwen3-vl-4b"]').count():
+            assert page.locator('#llm-model').input_value() == 'qwen/qwen3-vl-4b'
         # Use a completed real run to isolate UI rendering from GPU inference.
         page.evaluate("""async (runId) => {
-          const run = await (await fetch('/api/runs/' + encodeURIComponent(runId))).json();
+          const response = await fetch('/api/runs/' + encodeURIComponent(runId));
+          if (!response.ok) throw new Error('Run unavailable: ' + runId);
+          const run = await response.json();
           showResult(run);
         }""", arguments.run_id)
         ink = """() => {
@@ -52,12 +95,17 @@ def main() -> None:
         page.evaluate("showResult(state.result)")
         page.wait_for_function(f"({ink})() > 100")
         if arguments.vlm:
+            for checkbox in page.locator('[data-visible-provider]').all():
+                checkbox.check()
             page.locator('#llm-model').select_option('qwen/qwen3-vl-4b')
-            with page.expect_response('**/api/llm/review', timeout=300000) as response:
+            with page.expect_response('**/api/llm/review', timeout=650000) as response:
                 page.locator('#llm-send').click()
             reply = response.value.json()
+            (output / 'qwen-review.json').write_text(json.dumps(reply, ensure_ascii=False, indent=2), encoding='utf-8')
             assert response.value.status == 200, reply
             assert reply['parsed'], reply
+            assert reply['complete'], reply['notes']
+            assert reply['invalid_decisions'] == 0, reply['notes']
             assert isinstance(json.loads(reply['content'])['pick'], list), reply['content']
             final_ink = ink.replace('#overlay', '#llm-overlay')
             page.wait_for_function(f"({final_ink})() > 100")
@@ -86,8 +134,13 @@ def main() -> None:
             assert page.locator('#llm-preview').is_hidden()
             page.evaluate("showLlmPreview(true); showResult(state.result)")
             assert page.locator('#llm-preview').is_hidden()
+        check_vlm_failure_states(page)
         assert not errors, errors
-        print(json.dumps({"colored_pixels": colored, "page_errors": errors, "filters_resize_cached": "passed"}))
+        print(json.dumps({
+            "colored_pixels": colored, "page_errors": errors, "filters_resize_cached": "passed",
+            "vlm": {key: reply[key] for key in ("model", "batch_count", "complete", "invalid_decisions", "usage")}
+            if arguments.vlm else None,
+        }))
         browser.close()
 
 

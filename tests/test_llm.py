@@ -9,8 +9,9 @@ from labelbench.llm import _parse_json, apply_actions, review_run
 def test_truncated_json_cannot_be_mistaken_for_success() -> None:
     assert _parse_json('{"actions":[{"action":"remove","id":"line-1"},') is None
     assert _parse_json('{"action":"remove","id":"line-1"}') is None
-    assert _parse_json('{"actions":[],"notes":"checked"}') == {"actions": [], "notes": "checked"}
-    assert _parse_json('```json\n{"actions":[]}\n```') == {"actions": []}
+    assert _parse_json('{"pick":[],"notes":"checked"}') == {"pick": [], "notes": "checked"}
+    assert _parse_json('```json\n{"pick":[]}\n```') == {"pick": []}
+    assert _parse_json('{"actions":[]}') is None
 
 
 def test_apply_llm_actions_keeps_valid_contract_and_bounds() -> None:
@@ -78,7 +79,7 @@ def test_apply_llm_actions_clamps_polygon_and_skips_invalid_polygon() -> None:
     assert annotations[1].polygon is None
 
 
-@pytest.mark.parametrize("finish_reason", ["stop", "length", "retry_success"])
+@pytest.mark.parametrize("finish_reason", ["stop", "length", "retry_success", "empty", "conflict", "bad_index"])
 def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Path, finish_reason: str) -> None:
     image_path = tmp_path / "page.jpg"
     image_path.write_bytes(b"fake-image")
@@ -115,7 +116,13 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
         captured["payload"] = payload
         captured["calls"] = captured.get("calls", 0) + 1
         reason = finish_reason
-        content = '{"pick":[],"fuse":[],"drop":[],"uncertain":[]}'
+        content = '{"groups":{"0":0},"add":[],"notes":""}'
+        if finish_reason == "empty":
+            content = None
+        if finish_reason == "conflict" and captured["calls"] == 1:
+            content = '{"pick":[[0,0],[0,0]]}'
+        if finish_reason == "bad_index":
+            content = '{"pick":[[0,99]]}'
         if finish_reason == "retry_success":
             reason = "length" if captured["calls"] == 1 else "stop"
             if reason == "length":
@@ -132,7 +139,7 @@ def test_review_run_sends_image_and_detection_context(monkeypatch, tmp_path: Pat
     assert "Machine detections JSON" in message["content"][0]["text"]
     assert "bbox_xywh" not in message["content"][0]["text"]
     assert captured["calls"] == (1 if finish_reason == "stop" else 2)
-    if finish_reason == "length":
+    if finish_reason in ("length", "empty", "bad_index"):
         assert result["parsed"] is False
         assert result["refined_annotations"] == []
     else:

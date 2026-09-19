@@ -14,9 +14,12 @@ from typing import Any
 from pydantic import ValidationError
 
 from labelbench.contracts import Annotation, LLMMessage, RunResult
-from labelbench.llm_protocol import REVIEW_PROMPT, apply_review, compact_candidates, marked
+from labelbench.llm_batches import collect_reviews
+from labelbench.llm_protocol import apply_review, compact_candidates
+from labelbench.llm_schema import STRUCTURED_PROMPT, normalize_decisions, response_format
+from labelbench.llm_validation import decision_errors
 
-SYSTEM_PROMPT = REVIEW_PROMPT
+SYSTEM_PROMPT = STRUCTURED_PROMPT
 
 
 class LMStudioError(RuntimeError):
@@ -44,6 +47,29 @@ def review_run(
     """Send the image and compact detections to LM Studio, then apply its actions."""
 
     detections, aliases, groups = compact_candidates(run, providers)
+    if not detections:
+        raise LMStudioError("Нет сегментационных полигонов для проверки VLM.")
+    collected = collect_reviews(detections, lambda batch: _review_batch(
+        base_url, api_key, timeout, model, prompt, image_path, batch
+    ))
+    decisions = apply_review(collected["decisions"], aliases, groups, run.image_size)
+    decisions["invalid_decisions"] += collected["ignored_decisions"]
+    return {
+        **collected, **decisions, "model": model,
+        "content": json.dumps(collected["decisions"], ensure_ascii=False, separators=(",", ":")),
+        "context_chars": sum(item.get("context_chars", 0) for item in collected["batches"]),
+        "batch_count": len(collected["batches"]),
+        "compact_review": {
+            "coordinates": "normalized_0_1", "candidates": detections,
+            "decisions": collected["decisions"], "complete": collected["complete"],
+        },
+    }
+
+
+def _review_batch(
+    base_url: str, api_key: str, timeout: float, model: str, prompt: str,
+    image_path: Path, detections: list[Any],
+) -> dict[str, Any]:
     image_bytes = base64.b64encode(image_path.read_bytes()).decode("ascii")
     mime = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
     user_text = (
@@ -66,6 +92,7 @@ def review_run(
         "messages": messages,
         "temperature": 0.1,
         "max_tokens": 4000,
+        "response_format": response_format(detections),
     }
     response = _request_json(
         "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
@@ -74,15 +101,18 @@ def review_run(
              for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
     content, truncated = _completion_content(response)
     parsed = None if truncated else _parse_json(content)
-    retried = parsed is None
+    errors = decision_errors(parsed, detections) if parsed is not None else []
+    retried = parsed is None or bool(errors)
     if retried:
         # Regenerate from the image, never apply guessed closures or incomplete actions.
         retry_request = {
             **request,
             "messages": [
                 {"role": "system", "content": SYSTEM_PROMPT + (
-                    "\nPrevious output was incomplete. Start over. Omit valid singleton groups. "
-                    "Resolve every multi-candidate group. Compact complete JSON only."
+                    "\nPrevious output failed validation. Start over. "
+                    "Resolve every supplied group with exactly ONE decision in groups. "
+                    "Follow the JSON schema. Compact complete JSON only. "
+                    + " ".join(errors[:8])
                 )},
                 messages[-1],
             ],
@@ -93,37 +123,32 @@ def review_run(
         usage = {key: value + response.get("usage", {}).get(key, 0) for key, value in usage.items()}
         content, truncated = _completion_content(response)
         parsed = None if truncated else _parse_json(content)
-    base_annotations = [annotation for provider in providers for annotation in run.providers[provider].annotations]
-    refined, removed_ids, notes = apply_actions(parsed, base_annotations, run.image_size)
-    review = [marked(a, "kept") for a in refined]
-    decisions = {"refined_annotations": refined, "review_annotations": review,
-                 "removed_ids": removed_ids, "notes": notes, "invalid_decisions": 0}
-    if parsed is not None and any(
-        key in parsed for key in ("pick", "fuse", "drop", "uncertain", "edit", "add")
-    ):
-        decisions = apply_review(parsed, aliases, groups, run.image_size)
+        errors = decision_errors(parsed, detections) if parsed is not None else []
+    if errors:
+        parsed = None
+    notes = str(parsed.get("notes", "")) if parsed else ""
     if parsed is None:
         notes = (
             "Ответ VLM оборван по лимиту токенов. Выберите меньше моделей или сузьте задачу."
-            if truncated else "VLM не вернул полный JSON с actions. Повторите запрос."
+            if truncated else "VLM не вернул корректные решения после повтора. " + " ".join(errors[:3])
         )
     return {
         "model": model,
         "content": content,
         "parsed": parsed is not None,
         "retried": retried,
-        **decisions,
-        "notes": notes if parsed is None else decisions["notes"],
+        "decisions": parsed,
+        "notes": notes,
         "usage": usage,
         "context_chars": len(user_text),
-        "compact_review": {"coordinates": "normalized_0_1", "candidates": detections, "decisions": parsed},
     }
 
 
 def _completion_content(response: dict[str, Any]) -> tuple[str, bool]:
     try:
         choice = response["choices"][0]
-        return str(choice["message"]["content"]), choice.get("finish_reason") == "length"
+        content = choice["message"].get("content")
+        return content if isinstance(content, str) else "", choice.get("finish_reason") == "length"
     except (KeyError, IndexError, TypeError) as error:
         raise LMStudioError("LM Studio returned no assistant content") from error
 
@@ -221,20 +246,33 @@ def _clamp_polygon(
     return points
 
 
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate JSON key: {key}")
+        result[key] = value
+    return result
+
+
 def _parse_json(content: str) -> dict[str, Any] | None:
     candidate = content.strip()
     if candidate.startswith("```"):
         candidate = candidate.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
     # Never salvage a nested action from a truncated outer JSON object.
     try:
-        value = json.loads(candidate)
-    except json.JSONDecodeError:
+        value = json.loads(candidate, object_pairs_hook=_unique_object)
+    except ValueError:
         return None
     if not isinstance(value, dict):
         return None
+    try:
+        value = normalize_decisions(value)
+    except (ValueError, TypeError):
+        return None
     if not any(
         isinstance(value.get(key), list)
-        for key in ("actions", "annotations", "final_annotations", "pick", "fuse", "drop", "uncertain", "edit", "add")
+        for key in ("pick", "fuse", "drop", "uncertain", "edit", "add")
     ):
         return None
     for key in ("pick", "fuse", "drop", "uncertain", "edit", "add"):

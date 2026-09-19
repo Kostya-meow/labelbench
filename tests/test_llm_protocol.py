@@ -1,5 +1,7 @@
 import math
 
+import pytest
+
 from labelbench.contracts import Annotation, ProviderResult, RunResult
 from labelbench.llm_protocol import apply_review, compact_candidates
 
@@ -155,3 +157,19 @@ def test_polygonless_candidates_are_not_sent_to_vlm() -> None:
     assert payload == []
     assert aliases == {}
     assert groups == {}
+
+
+@pytest.mark.parametrize("kind", ["fuse", "edit"])
+@pytest.mark.parametrize("polygon", [[], [[0, 0], [0, 0], [0, 0]], [[0, 0], [2, 0], [1, 1]]])
+def test_invalid_geometry_never_removes_originals(kind: str, polygon: list) -> None:
+    _, aliases, groups = compact_candidates(
+        run_with(candidate("a"), candidate("b", x=11, provider="model_b")),
+        ["model_a", "model_b"],
+    )
+    group_id = next(iter(groups))
+    entry = [group_id, polygon] if kind == "fuse" else [group_id, 0, polygon]
+    result = apply_review({kind: [entry]}, aliases, groups, [100, 100])
+    assert result["invalid_decisions"] == 1
+    assert result["removed_ids"] == []
+    assert result["refined_annotations"] == []
+    assert result["unresolved_groups"] == [group_id]
