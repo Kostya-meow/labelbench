@@ -20,6 +20,7 @@ const elements = {
 };
 const colors = {
   ppocr6: '#16a085',
+  ppocr6_small: '#287fca', ppocr6_tiny: '#b068b0',
   ppocr: '#f36f38', mask2former: '#29b6a6', sam2: '#9b73e8', yolo26: '#e2b93b',
   rfdetr_historical: '#dc5a8a', docufcn: '#5378d8', eynollah_textline: '#c45a35', rtmdet_lines: '#008c7a',
 };
@@ -30,6 +31,7 @@ const reviewStyles = {
 };
 const providerTitles = {
   ppocr6: 'PP-OCRv6 Medium Det',
+  ppocr6_small: 'PP-OCRv6 Small Det', ppocr6_tiny: 'PP-OCRv6 Tiny Det',
   ppocr: 'PP-OCRv5 Server', mask2former: 'Mask2Former', sam2: 'SAM 2.1', yolo26: 'YOLO26-seg',
   rfdetr_historical: 'RF-DETR Historical Textline', docufcn: 'Doc-UFCN Generic Historical Line', eynollah_textline: 'Eynollah Textline', rtmdet_lines: 'Riksarkivet RTMDet Lines',
 };

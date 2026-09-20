@@ -14,7 +14,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--providers", nargs="+", choices=[
-            "ppocr", "ppocr6", "mask2former", "sam2", "yolo26", "rfdetr_historical", "docufcn",
+            "ppocr", "ppocr6", "ppocr6_small", "ppocr6_tiny", "mask2former", "sam2", "yolo26", "rfdetr_historical", "docufcn",
             "eynollah_textline", "rtmdet_lines"
         ], required=True
     )

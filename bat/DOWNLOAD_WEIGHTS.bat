@@ -88,7 +88,7 @@ if not exist "%LABELBENCH_EYNOLLAH_CHECKPOINT%" (
   "%LABELBENCH_EYNOLLAH_PYTHON%" -m tf2onnx.convert --saved-model "%EYNOLLAH_KERAS%" --output "%LABELBENCH_EYNOLLAH_CHECKPOINT%" --opset 13 || goto :failed
 )
 echo Downloading and verifying all model weights...
-"%PYTHON%" scripts\prefetch_models.py --providers ppocr ppocr6 mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline rtmdet_lines || goto :failed
+"%PYTHON%" scripts\prefetch_models.py --providers ppocr ppocr6 ppocr6_small ppocr6_tiny mask2former sam2 yolo26 rfdetr_historical docufcn eynollah_textline rtmdet_lines || goto :failed
 echo.
 echo READY. All available weights are cached. Run START.bat.
 pause

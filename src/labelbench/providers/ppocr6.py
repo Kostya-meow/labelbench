@@ -15,9 +15,11 @@ from labelbench.settings import Settings
 
 class PPOCR6Provider(AnnotationProvider):
     name = "ppocr6"
+    model_setting = "ppocr6_model"
+    architecture = "PPOCRV6MediumDetForObjectDetection"
 
     def __init__(self, cfg: Settings) -> None:
-        self.model_name = cfg.ppocr6_model
+        self.model_name = getattr(cfg, self.model_setting)
         self._device = cfg.device
         self._model: Any = None
         self._processor: Any = None
@@ -25,8 +27,10 @@ class PPOCR6Provider(AnnotationProvider):
     def availability(self) -> ProviderAvailability:
         try:
             import cv2  # noqa: F401
-            from transformers import PPOCRV6MediumDetForObjectDetection  # noqa: F401
-        except ImportError:
+            import transformers
+
+            getattr(transformers, self.architecture)
+        except (ImportError, AttributeError):
             return ProviderAvailability(False, "Run bat/INSTALL_PPOCR6.bat")
         return ProviderAvailability(True, "Ready; PP-OCRv6 text detection, no recognition")
 
@@ -66,7 +70,7 @@ class PPOCR6Provider(AnnotationProvider):
             polygon = points.detach().cpu().tolist()
             xs, ys = zip(*polygon, strict=True)
             annotations.append(Annotation(
-                id=f"ppocr6-{index}", label="text", score=float(score),
+                id=f"{self.name}-{index}", label="text", score=float(score),
                 bbox_xywh=[min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys)],
                 polygon=polygon, provider=self.name, attributes={"device": device},
             ))
@@ -75,3 +79,14 @@ class PPOCR6Provider(AnnotationProvider):
             image_size=[image.width, image.height], annotations=annotations,
             elapsed_seconds=time.perf_counter() - started,
         )
+
+
+class PPOCR6SmallProvider(PPOCR6Provider):
+    name = "ppocr6_small"
+    model_setting = "ppocr6_small_model"
+    architecture = "PPOCRV6SmallDetForObjectDetection"
+
+
+class PPOCR6TinyProvider(PPOCR6SmallProvider):
+    name = "ppocr6_tiny"
+    model_setting = "ppocr6_tiny_model"

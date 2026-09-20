@@ -1,4 +1,7 @@
 .venv/
+.venv-*/
+fusion_env/
+архив 2/
 .venv-gpu/
 .venv-ocr/
 .venv-dla/
