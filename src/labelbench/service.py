@@ -4,10 +4,13 @@ from __future__ import annotations
 
 import uuid
 from pathlib import Path
+from threading import Lock
 
 from PIL import Image, ImageDraw
 
+from labelbench.annotation_cache import cache_key, load_cached, load_legacy, save_cached
 from labelbench.contracts import Annotation, ProviderResult, RunResult, safe_child_path
+from labelbench.progress import Progress, silent_progress
 from labelbench.providers.base import AnnotationProvider
 from labelbench.settings import Settings
 
@@ -30,6 +33,7 @@ class AnnotationService:
     def __init__(self, settings: Settings, providers: dict[str, AnnotationProvider]) -> None:
         self.settings = settings
         self.providers = providers
+        self._inference_lock = Lock()
 
     def list_images(self) -> list[str]:
         return sorted(
@@ -38,7 +42,9 @@ class AnnotationService:
             if file.is_file() and file.suffix.lower() in ALLOWED_SUFFIXES
         )
 
-    def run(self, image_name: str, provider_names: list[str]) -> RunResult:
+    def run(self, image_name: str, provider_names: list[str], force: bool = False,
+            progress: Progress = silent_progress) -> RunResult:
+        progress("Проверяю изображение и выбранные детекторы")
         image_path = safe_child_path(self.settings.images_dir, image_name)
         if not image_path.is_file() or image_path.suffix.lower() not in ALLOWED_SUFFIXES:
             raise FileNotFoundError("Image not found or unsupported")
@@ -49,11 +55,27 @@ class AnnotationService:
         results: dict[str, ProviderResult] = {}
         for name in provider_names:
             provider = self.providers[name]
-            status = provider.availability()
-            if not status.available:
-                raise RuntimeError(f"{name} unavailable: {status.detail}")
-            result = provider.annotate(image_path)
+            progress(f"{name}: ожидаю очередь обработки")
+            with self._inference_lock:
+                progress(f"{name}: проверяю сохранённую разметку")
+                key = cache_key(image_path, provider)
+                result = None if force else load_cached(self.settings.output_dir, key)
+                if result is None and not force:
+                    result = load_legacy(self.settings.output_dir, image_path, image_name, provider)
+                if result is None:
+                    progress(f"{name}: проверяю окружение, загружаю модель и выполняю inference")
+                    status = provider.availability()
+                    if not status.available:
+                        raise RuntimeError(f"{name} unavailable: {status.detail}")
+                    result = provider.annotate(image_path)
+                    # First inference may download a checkpoint used by the signature.
+                    key = cache_key(image_path, provider)
+                else:
+                    progress(f"{name}: использую сохранённую разметку")
+                result = result.model_copy(update={"image_name": image_name})
+                result = save_cached(self.settings.output_dir, key, result)
             self._write_provider_result(run_id, result)
+            progress(f"{name}: {len(result.annotations)} сегментов; сохраняю JSON и отрисовку")
             self._draw_overlay(run_id, image_path, result)
             results[name] = result
         with Image.open(image_path) as image:
@@ -66,6 +88,7 @@ class AnnotationService:
             consensus_score=self._consensus(results),
         )
         combined_dir = self.settings.output_dir / "combined" / run_id
+        progress("Сохраняю общий результат и изображение")
         combined_dir.mkdir(parents=True, exist_ok=True)
         self._draw_combined_overlay(run_id, image_path, results)
         (combined_dir / "result.json").write_text(merged.model_dump_json(indent=2), encoding="utf-8")

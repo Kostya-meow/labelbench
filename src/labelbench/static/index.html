@@ -23,8 +23,10 @@
         <p class="section-label">02 / ПРОВАЙДЕРЫ</p>
         <div id="providers" class="providers"></div>
       </section>
+      <label class="apply-control"><input id="force-rerun" type="checkbox"> Пересчитать, не использовать сохранённое</label>
       <button id="run" class="run-button" disabled>Запустить выбранные <span>→</span></button>
       <p id="run-status" class="run-status">Добавьте изображения в папку и обновите список.</p>
+      <details class="task-console" open><summary>Журнал детекторов · <span id="run-elapsed">0 сек.</span></summary><pre id="run-console" role="log">Ожидание запуска</pre></details>
       <section class="legend-wrap">
         <p class="section-label">ЛЕГЕНДА</p>
         <div class="legend"><i class="ocr"></i> PP-OCRv5 Server</div>
@@ -51,11 +53,23 @@
       <div class="result-strip" id="result-strip"><div class="result-empty">После запуска здесь появятся результаты по каждому provider-у.</div></div>
       <button id="export" class="export-button" disabled>Скачать оставленную разметку JSON</button>
       <section class="llm-panel">
-        <div class="llm-head"><div><p class="section-label">04 / VLM-ПРОВЕРКА</p><h3>LM Studio</h3></div><span id="llm-status" class="llm-status">Проверяю LM Studio...</span></div>
+        <div class="llm-head"><div><p class="section-label">04 / VLM-ПРОВЕРКА</p><h3>Проверка разметки</h3></div><span id="llm-status" class="llm-status">Проверяю LM Studio...</span></div>
+        <div class="llm-config">
+          <label>Сервис<select id="llm-backend"><option value="lm_studio">LM Studio — локально</option><option value="routerai">RouterAI</option></select></label>
+          <label>Координаты<select id="llm-mode"><option value="batched">По частям</option><option value="all">Все сразу</option></select></label>
+          <label>Лимит токенов ответа<input id="llm-max-tokens" type="number" min="512" max="32768" value="4000" step="512"></label>
+        </div>
         <div class="llm-config"><input id="llm-url" value="http://localhost:1234/v1" readonly aria-label="LM Studio API URL"><select id="llm-model" aria-label="Модель LM Studio"><option>Проверяю список...</option></select><button id="llm-refresh" class="text-button">↻ модели</button></div>
-        <p class="coordinate-hint">В VLM: сегментационные полигоны до 50 точек, координаты 0–1. Перекрывающиеся варианты объединены в группы. Большой результат проверяется по частям; кандидаты одной группы всегда отправляются вместе.</p>
+        <div id="routerai-fields" class="llm-config" hidden>
+          <label>Модель RouterAI<input id="routerai-model" placeholder="google/gemini-2.5-flash" autocomplete="off" spellcheck="false"></label>
+          <label>API-ключ<input id="routerai-key" type="password" autocomplete="off" spellcheck="false" placeholder="Ключ RouterAI"></label>
+        </div>
+        <p id="llm-connection-hint" class="coordinate-hint"></p>
+        <p class="coordinate-hint">В VLM: сегментационные полигоны до 50 точек, координаты 0–1. Перекрывающиеся варианты объединены в группы. Можно отправлять по частям или все сразу; кандидаты одной группы всегда остаются вместе.</p>
         <textarea id="llm-prompt" rows="4">Для каждой группы выбери один сегмент, который точнее соответствует видимой строке на изображении, исправь его границу или оставь группу сомнительной. Удали явные ошибки. Не оставляй несколько истинных сегментов в одной группе и не выбирай автоматически первый вариант.</textarea>
         <div class="llm-actions"><button id="llm-send" class="run-button" disabled>Отправить в VLM <span>→</span></button><label class="apply-control"><input id="llm-apply" type="checkbox" disabled> показывать улучшенную разметку</label><button id="llm-export" class="export-button" disabled>Скачать VLM JSON</button></div>
+        <details class="task-console" open><summary>Журнал VLM · <span id="llm-elapsed">0 сек.</span></summary><pre id="llm-console" role="log">Ожидание запуска</pre></details>
+        <button id="llm-cancel" class="export-button" disabled>Остановить VLM</button>
         <pre id="llm-response" class="llm-response">Ответ VLM появится здесь.</pre>
         <p id="llm-result-message" role="status" class="coordinate-hint"></p>
         <section id="llm-preview" class="llm-preview" hidden>
@@ -79,6 +93,8 @@
   <template id="provider-template">
     <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
   </template>
-  <script src="/static/app.js?v=vlm-batches-1"></script>
+  <script src="/static/llm_controls.js?v=cancel-1"></script>
+  <script src="/static/progress.js?v=1"></script>
+  <script src="/static/app.js?v=cancel-1"></script>
 </body>
 </html>

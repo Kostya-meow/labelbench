@@ -59,10 +59,15 @@ button { cursor:pointer; }
 .export-button:hover:not(:disabled) { background:var(--ink); color:#fffdf7; }
 .export-button:disabled { opacity:.45; cursor:not-allowed; }
 .llm-panel { padding:18px; border:1px solid var(--line); background:#e9e4d6; }
+.task-console { margin:12px 0; min-width:0; font:11px/1.5 monospace; }
+.task-console summary { cursor:pointer; }
+.task-console pre { background:#16221d; color:#e6ead9; padding:12px; max-height:220px; overflow:auto; white-space:pre-wrap; overflow-wrap:anywhere; }
 .llm-head { display:flex; align-items:flex-end; justify-content:space-between; gap:14px; }
 .llm-head h3 { margin:5px 0 0; font:italic 24px/1 'Instrument Serif',serif; }
 .llm-status { color:var(--muted); font:10px/1.3 'DM Mono',monospace; text-align:right; }
 .llm-config { display:grid; grid-template-columns:1fr 1fr auto; gap:8px; margin-top:14px; }
+.llm-config[hidden] { display:none; }
+.llm-config label { min-width:0; font:11px 'DM Mono',monospace; }
 .llm-config input,.llm-config select,.llm-panel textarea { width:100%; padding:10px; border:1px solid var(--line); background:#fffdf7; color:var(--ink); font:11px 'DM Mono',monospace; }
 .llm-panel textarea { margin-top:10px; resize:vertical; line-height:1.45; }
 .coordinate-hint { margin:10px 0 0; color:var(--muted); font:10px/1.4 'DM Mono',monospace; }

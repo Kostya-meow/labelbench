@@ -6,6 +6,8 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from labelbench.progress import Progress, silent_progress
+
 MAX_BATCH_CHARS = 16000
 MAX_BATCH_GROUPS = 40
 DECISION_KEYS = ("pick", "fuse", "drop", "uncertain", "edit", "add")
@@ -28,10 +30,15 @@ def split_groups(groups: list[Any]) -> list[list[Any]]:
 
 
 def collect_reviews(
-    groups: list[Any], request: Callable[[list[Any]], dict[str, Any]]
+    groups: list[Any], request: Callable[[list[Any]], dict[str, Any]],
+    request_mode: str = "batched",
+    progress: Progress = silent_progress,
 ) -> dict[str, Any]:
     """Keep successful responses and mark every failed group uncertain."""
-    pending = split_groups(groups)
+    if request_mode not in ("batched", "all"):
+        raise ValueError("Unknown request mode")
+    pending = [groups] if groups and request_mode == "all" else split_groups(groups)
+    progress(f"Подготовлено групп: {len(groups)}; частей: {len(pending)}")
     decisions: dict[str, Any] = {key: [] for key in DECISION_KEYS}
     usage = dict.fromkeys(("prompt_tokens", "completion_tokens", "total_tokens"), 0)
     reports: list[dict[str, Any]] = []
@@ -39,17 +46,20 @@ def collect_reviews(
     while pending:
         batch = pending.pop(0)
         group_ids = [group[0] for group in batch]
+        progress(f"Отправляю часть {len(reports) + 1}/{len(reports) + len(pending) + 1}: {len(batch)} групп")
         try:
             reply = request(batch)
         except RuntimeError as error:
             detail = str(error)
-            if len(batch) > 1 and any(term in detail.lower() for term in (
+            if request_mode == "batched" and len(batch) > 1 and any(term in detail.lower() for term in (
                 "exceed_context", "context size", "context length",
             )):
                 middle = len(batch) // 2
                 pending[0:0] = [batch[:middle], batch[middle:]]
+                progress("Контекст переполнен: делю часть на две")
                 continue
             reply = {"parsed": False, "notes": detail, "content": ""}
+            progress(f"Ошибка API: {detail}")
             for remaining in pending:
                 ids = [group[0] for group in remaining]
                 decisions["uncertain"].extend(ids)
@@ -71,6 +81,7 @@ def collect_reviews(
         else:
             decisions["uncertain"].extend(group_ids)
         reports.append({**reply, "groups": group_ids})
+        progress("Часть проверена" if reply["parsed"] else "Часть не проверена; исходные сегменты сохранены")
     complete = bool(reports) and all(item["parsed"] for item in reports)
     successful = sum(bool(item["parsed"]) for item in reports)
     notes = [str(item["notes"]) for item in reports if item.get("notes")]

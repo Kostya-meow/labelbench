@@ -1,5 +1,5 @@
 const state = {
-  health: null, result: null, filters: {},
+  health: null, result: null, filters: {}, runBusy: false,
   llm: { busy: false, resultModel: '', models: [], messages: [], refinedAnnotations: [], reviewAnnotations: [], reviewFilters: {}, compactReview: null, notes: '', model: '' },
 };
 const elements = {
@@ -66,7 +66,7 @@ async function loadImages() {
   updateRunEnabled();
 }
 function updateRunEnabled() {
-  elements.run.disabled = !elements.image.value || !document.querySelector('.provider-row input:checked');
+  elements.run.disabled = state.runBusy || !elements.image.value || !document.querySelector('.provider-row input:checked');
 }
 function selectProviders() { return [...document.querySelectorAll('.provider-row input:checked')].map((input) => input.value); }
 function imageUrl(name) { return `/files/images/${name.split('/').map(encodeURIComponent).join('/')}`; }
@@ -86,6 +86,10 @@ function visibleAnnotations(provider, item) {
   if (!filter || filter.visible === false) return [];
   return item.annotations.filter((annotation) => filter.labels[annotation.label] !== false);
 }
+function resultTiming(item) {
+  if (!item.cached) return item.elapsed_seconds.toFixed(2) + ' sec';
+  return item.cache_origin === 'legacy' ? 'Сохранено (старый запуск)' : 'Из кэша';
+}
 function renderResultStrip() {
   if (!state.result) return;
   const cards = Object.entries(state.result.providers).map(([name, item]) => {
@@ -95,7 +99,7 @@ function renderResultStrip() {
     const controls = labels.map((label) => `<label class="class-control"><input type="checkbox" data-class-provider="${escapeHtml(name)}" data-class-label="${escapeHtml(label)}"${filter.labels[label] ? ' checked' : ''}><input type="color" value="${filter.colors[label]}" data-color-provider="${escapeHtml(name)}" data-color-label="${escapeHtml(label)}" title="Цвет ${escapeHtml(label)}"><span>${escapeHtml(label)}</span></label>`).join('');
     const recognized = visibleAnnotations(name, item).map((annotation) => annotation.text?.trim()).filter(Boolean);
     const textPreview = recognized.length ? `<div class="recognized-text"><b>Распознано:</b> ${escapeHtml(recognized.join(' · ').slice(0, 1200))}${recognized.join(' · ').length > 1200 ? '…' : ''}</div>` : '';
-    return `<article class="result-card" style="--card-color:${colors[name] || '#16221d'}"><div class="result-card-head"><strong>${escapeHtml(providerTitles[name] || name)}</strong><label class="visibility-control"><input type="checkbox" data-visible-provider="${escapeHtml(name)}"${filter.visible ? ' checked' : ''}> показывать</label></div><span>${visibleAnnotations(name, item).length}/${item.annotations.length} оставлено<br>${item.elapsed_seconds.toFixed(2)} sec</span><div class="class-controls">${controls || '<small>Нет сегментов</small>'}</div>${textPreview}</article>`;
+    return `<article class="result-card" style="--card-color:${colors[name] || '#16221d'}"><div class="result-card-head"><strong>${escapeHtml(providerTitles[name] || name)}</strong><label class="visibility-control"><input type="checkbox" data-visible-provider="${escapeHtml(name)}"${filter.visible ? ' checked' : ''}> показывать</label></div><span>${visibleAnnotations(name, item).length}/${item.annotations.length} оставлено<br>${resultTiming(item)}</span><div class="class-controls">${controls || '<small>Нет сегментов</small>'}</div>${textPreview}</article>`;
   });
   elements.strip.innerHTML = cards.join('');
 }
@@ -223,14 +227,17 @@ function exportFiltered() {
 }
 function updateLlmEnabled() {
   const hasProviders = state.result && Object.keys(state.result.providers).some(name => state.filters[name]?.visible !== false);
-  elements.llmSend.disabled = state.llm.busy || !hasProviders || !state.llm.model || !elements.llmPrompt.value.trim();
+  const options = llmRequestOptions();
+  elements.llmSend.disabled = state.llm.busy || !hasProviders || !options.model || !elements.llmPrompt.value.trim()
+    || (options.backend === 'routerai' && !options.api_key)
+    || !Number.isInteger(options.max_output_tokens) || options.max_output_tokens < 512 || options.max_output_tokens > 32768;
 }
 async function loadLlmModels() {
   elements.llmStatus.textContent = 'Проверяю LM Studio...';
   try {
     const previousModel = state.llm.model;
     const data = await json('/api/llm/models');
-    elements.llmUrl.value = data.base_url || elements.llmUrl.value;
+    state.llm.localUrl = data.base_url;
     state.llm.models = data.models || [];
     elements.llmModel.replaceChildren();
     if (!state.llm.models.length) {
@@ -244,12 +251,18 @@ async function loadLlmModels() {
       elements.llmStatus.textContent = `LM Studio API: ${state.llm.models.length} моделей в списке`;
     }
   } catch (error) { elements.llmStatus.textContent = `LM Studio: ${error.message}`; }
-  updateLlmEnabled();
+  updateLlmConnection();
 }
 async function sendToLlm() {
   if (!state.result || state.llm.busy) return;
   state.llm.busy = true;
   const sourceRun = state.result;
+  const options = llmRequestOptions();
+  const journal = startTaskConsole('llm');
+  const controller = new AbortController();
+  const job = { identifier: journal.identifier, controller, stopping: false };
+  state.llm.activeJob = job;
+  document.querySelector('#llm-cancel').disabled = false;
   const started = Date.now();
   elements.llmSend.disabled = true;
   elements.llmApply.checked = false;
@@ -257,29 +270,33 @@ async function sendToLlm() {
   elements.llmExport.disabled = true;
   showLlmPreview(false);
   drawAnnotations();
-  const showWaiting = () => { elements.llmStatus.textContent = `VLM проверяет полигоны по частям: ${Math.floor((Date.now() - started) / 1000)} сек. Ожидаю ответ…`; };
+  const showWaiting = () => { if (!job.stopping) elements.llmStatus.textContent = `VLM проверяет полигоны ${options.request_mode === 'all' ? 'все сразу' : 'по частям'}: ${Math.floor((Date.now() - started) / 1000)} сек. Ожидаю ответ…`; };
   showWaiting();
   const timer = setInterval(showWaiting, 1000);
   const prompt = elements.llmPrompt.value.trim();
   try {
     const data = await json('/api/llm/review', {
+      signal: controller.signal,
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        run_id: state.result.run_id, model: state.llm.model, prompt,
+        run_id: state.result.run_id, ...options, prompt, progress_id: journal.identifier,
         providers: Object.keys(state.result.providers).filter(name => state.filters[name]?.visible !== false),
       }),
     });
     clearInterval(timer);
+    if (job.stopping) throw new DOMException('Cancelled', 'AbortError');
     if (state.result !== sourceRun) {
       elements.llmStatus.textContent = 'Открыт другой результат. Запустите проверку VLM для него.';
       return;
     }
     state.llm.resultModel = data.model;
+    state.llm.resultBackend = data.backend || options.backend;
+    state.llm.resultMode = data.request_mode || options.request_mode;
     state.llm.refinedAnnotations = data.refined_annotations || [];
     state.llm.reviewAnnotations = data.review_annotations || state.llm.refinedAnnotations;
     state.llm.compactReview = data.compact_review;
     state.llm.notes = data.notes || '';
-    elements.llmResponse.textContent = data.content;
+    elements.llmResponse.textContent = data.parsed ? data.content : 'Ответ модели не получен. Исходная разметка не изменена.';
     elements.llmStatus.textContent = data.parsed ? `${data.complete === false ? 'Частичный ответ. ' : ''}Принято: ${state.llm.refinedAnnotations.length}; частей: ${data.batch_count || 1}${data.usage?.total_tokens ? '; токенов: ' + data.usage.total_tokens : ''}` : data.notes || 'VLM ответил, но JSON не распознан.';
     elements.llmResultMessage.textContent = data.parsed
       ? `${data.retried ? 'Ответ получен после автоматического повтора. ' : ''}${data.notes || ''}${data.invalid_decisions ? ' Некорректных решений пропущено: ' + data.invalid_decisions : ''}`
@@ -289,13 +306,25 @@ async function sendToLlm() {
     if (!data.parsed) elements.llmApply.checked = false;
     showLlmPreview(data.parsed);
     drawAnnotations();
-  } catch (error) { elements.llmStatus.textContent = `Ошибка VLM: ${error.message}`; }
-  finally { clearInterval(timer); state.llm.busy = false; updateLlmEnabled(); }
+  } catch (error) {
+    elements.llmStatus.textContent = error.name === 'AbortError' || job.stopping
+      ? 'VLM остановлена. Исходная разметка сохранена.' : `Ошибка VLM: ${error.message}`;
+    elements.llmResponse.textContent = error.name === 'AbortError' || job.stopping ? 'Запрос отменён пользователем.' : 'Ответ модели не получен.';
+  }
+  finally {
+    clearInterval(timer);
+    document.querySelector('#llm-cancel').disabled = true;
+    await journal.finish(elements.llmStatus.textContent);
+    state.llm.activeJob = null;
+    state.llm.busy = false;
+    updateLlmEnabled();
+  }
 }
 function exportLlmResult() {
   if (!state.result || elements.llmExport.disabled) return;
   const payload = {
-    schema_version: '1.0', source: 'lm_studio', model: state.llm.resultModel,
+    schema_version: '1.0', source: state.llm.resultBackend, model: state.llm.resultModel,
+    request_mode: state.llm.resultMode,
     image_name: state.result.image_name, image_size: state.result.image_size,
     run_id: state.result.run_id, review: state.llm.compactReview, notes: state.llm.notes,
   };
@@ -306,17 +335,20 @@ function exportLlmResult() {
   elements.llmStatus.textContent = 'Улучшенная разметка скачана в JSON.';
 }
 async function run() {
+  if (state.runBusy) return;
+  state.runBusy = true;
+  const journal = startTaskConsole('run');
   elements.run.disabled = true;
   elements.status.textContent = 'Модели выполняют inference — первый запуск может скачать веса…';
   try {
     const result = await json('/api/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_name: elements.image.value, providers: selectProviders() }),
+      body: JSON.stringify({ image_name: elements.image.value, providers: selectProviders(), force: document.querySelector('#force-rerun').checked, progress_id: journal.identifier }),
     });
     showResult(result);
     elements.status.textContent = `Готово: run ${result.run_id}`;
   } catch (error) { elements.status.textContent = `Ошибка: ${error.message}`; }
-  finally { updateRunEnabled(); }
+  finally { await journal.finish(elements.status.textContent); state.runBusy = false; updateRunEnabled(); }
 }
 function showError(error) { elements.status.textContent = `Ошибка: ${error.message}`; }
 elements.run.addEventListener('click', run);
@@ -349,4 +381,5 @@ elements.strip.addEventListener('change', (event) => {
 elements.export.addEventListener('click', exportFiltered);
 window.addEventListener('resize', drawAnnotations);
 window.addEventListener('resize', drawLlmPreview);
+initializeLlmControls();
 Promise.all([loadHealth(), loadImages(), loadLlmModels()]).catch(showError);

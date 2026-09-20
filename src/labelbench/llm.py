@@ -8,16 +8,20 @@ import mimetypes
 import urllib.error
 import urllib.request
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
+import httpx
 from pydantic import ValidationError
 
+from labelbench.cancellation import current_cancellation, request_with_cancellation
 from labelbench.contracts import Annotation, LLMMessage, RunResult
 from labelbench.llm_batches import collect_reviews
 from labelbench.llm_protocol import apply_review, compact_candidates
 from labelbench.llm_schema import STRUCTURED_PROMPT, normalize_decisions, response_format
 from labelbench.llm_validation import decision_errors
+from labelbench.progress import Progress, silent_progress
 
 SYSTEM_PROMPT = STRUCTURED_PROMPT
 
@@ -43,25 +47,35 @@ def review_run(
     run: RunResult,
     image_path: Path,
     providers: list[str],
+    *, backend: str = "lm_studio", request_mode: str = "batched",
+    max_output_tokens: int = 4000,
+    progress: Progress = silent_progress,
 ) -> dict[str, Any]:
     """Send the image and compact detections to LM Studio, then apply its actions."""
 
+    progress("Подготавливаю полигоны и группы кандидатов")
     detections, aliases, groups = compact_candidates(run, providers)
     if not detections:
         raise LMStudioError("Нет сегментационных полигонов для проверки VLM.")
     collected = collect_reviews(detections, lambda batch: _review_batch(
-        base_url, api_key, timeout, model, prompt, image_path, batch
-    ))
+        base_url, api_key, timeout, model, prompt, image_path, batch,
+        structured=backend == "lm_studio", request_mode=request_mode,
+        max_output_tokens=max_output_tokens,
+        progress=progress,
+    ), request_mode=request_mode, progress=progress)
+    progress("Собираю решения и проверяю итоговую геометрию")
     decisions = apply_review(collected["decisions"], aliases, groups, run.image_size)
     decisions["invalid_decisions"] += collected["ignored_decisions"]
     return {
         **collected, **decisions, "model": model,
-        "content": json.dumps(collected["decisions"], ensure_ascii=False, separators=(",", ":")),
+        "backend": backend, "request_mode": request_mode,
+        "content": json.dumps(collected["decisions"], ensure_ascii=False, separators=(",", ":")) if collected["parsed"] else "",
         "context_chars": sum(item.get("context_chars", 0) for item in collected["batches"]),
         "batch_count": len(collected["batches"]),
         "compact_review": {
             "coordinates": "normalized_0_1", "candidates": detections,
             "decisions": collected["decisions"], "complete": collected["complete"],
+            "backend": backend, "request_mode": request_mode,
         },
     }
 
@@ -69,14 +83,30 @@ def review_run(
 def _review_batch(
     base_url: str, api_key: str, timeout: float, model: str, prompt: str,
     image_path: Path, detections: list[Any],
+    *, structured: bool = True, request_mode: str = "batched", max_output_tokens: int = 4000,
+    progress: Progress = silent_progress,
 ) -> dict[str, Any]:
-    image_bytes = base64.b64encode(image_path.read_bytes()).decode("ascii")
     mime = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
+    raw_image = image_path.read_bytes()
+    if mime not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+        from PIL import Image
+
+        with Image.open(image_path) as image:
+            buffer = BytesIO()
+            image.convert("RGB").save(buffer, format="PNG")
+            raw_image, mime = buffer.getvalue(), "image/png"
+    image_bytes = base64.b64encode(raw_image).decode("ascii")
+    system_prompt = SYSTEM_PROMPT
+    if request_mode == "all":
+        system_prompt = system_prompt.replace(
+            "This is one batch of a larger page review. Objects absent from this batch may exist in other batches.",
+            "This request contains ALL selected groups for the page.",
+        )
     user_text = (
         f"User instruction:\n{prompt}\n\n"
         f"Machine detections JSON:\n{json.dumps(detections, ensure_ascii=False, separators=(',', ':'))}"
     )
-    messages: list[dict[str, Any]] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
     # Each review is independent: do not resend verbose previous JSON or stale IDs.
     messages.append(
         {
@@ -91,27 +121,31 @@ def _review_batch(
         "model": model,
         "messages": messages,
         "temperature": 0.1,
-        "max_tokens": 4000,
-        "response_format": response_format(detections),
+        "max_tokens": max_output_tokens,
     }
+    if structured:
+        request["response_format"] = response_format(detections)
+    progress("Ожидаю ответ модели (API возвращает ответ целиком)")
     response = _request_json(
         "POST", f"{base_url.rstrip('/')}/chat/completions", request, timeout, api_key
     )
     usage = {key: response.get("usage", {}).get(key, 0)
              for key in ("prompt_tokens", "completion_tokens", "total_tokens")}
     content, truncated = _completion_content(response)
+    progress(f"Ответ получен; токенов: {usage.get('total_tokens', 0)}. Проверяю JSON и решения")
     parsed = None if truncated else _parse_json(content)
     errors = decision_errors(parsed, detections) if parsed is not None else []
     retried = parsed is None or bool(errors)
     if retried:
+        progress("Ответ неполный или некорректный: выполняю один повтор")
         # Regenerate from the image, never apply guessed closures or incomplete actions.
         retry_request = {
             **request,
             "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT + (
+                {"role": "system", "content": system_prompt + (
                     "\nPrevious output failed validation. Start over. "
                     "Resolve every supplied group with exactly ONE decision in groups. "
-                    "Follow the JSON schema. Compact complete JSON only. "
+                    "Follow the required JSON format. Compact complete JSON only. "
                     + " ".join(errors[:8])
                 )},
                 messages[-1],
@@ -129,7 +163,7 @@ def _review_batch(
     notes = str(parsed.get("notes", "")) if parsed else ""
     if parsed is None:
         notes = (
-            "Ответ VLM оборван по лимиту токенов. Выберите меньше моделей или сузьте задачу."
+            "Ответ VLM оборван по лимиту токенов. Увеличьте лимит ответа или выберите режим по частям."
             if truncated else "VLM не вернул корректные решения после повтора. " + " ".join(errors[:3])
         )
     return {
@@ -296,9 +330,20 @@ def _request_json(
         headers["Authorization"] = f"Bearer {api_key}"
     request = urllib.request.Request(url, data=body, headers=headers, method=method)
     try:
+        cancellation = current_cancellation.get()
+        if cancellation is not None:
+            status, data = request_with_cancellation(method, url, body, headers, timeout, cancellation)
+            if status >= 400:
+                raise urllib.error.HTTPError(url, status, "VLM API error", {}, BytesIO(data))
+            return json.loads(data.decode("utf-8"))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as error:
-        raise LMStudioError(f"LM Studio HTTP {error.code}: {error.read().decode('utf-8', 'ignore')[-1000:]}") from error
-    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
-        raise LMStudioError(f"LM Studio unavailable at {url}: {error}") from error
+        if error.code == 402:
+            raise LMStudioError("Недостаточно средств на балансе API (HTTP 402). Пополните баланс RouterAI или выберите LM Studio. Ответ модели не получен.") from error
+        detail = error.read().decode('utf-8', 'ignore')
+        if api_key:
+            detail = detail.replace(api_key, "[redacted]")
+        raise LMStudioError(f"VLM API HTTP {error.code}: {detail[-1000:]}") from error
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError, httpx.HTTPError) as error:
+        raise LMStudioError(f"VLM API unavailable at {url}: {error}") from error

@@ -55,3 +55,17 @@ def test_batch_cannot_change_unseen_objects() -> None:
     assert result["decisions"]["drop"] == []
     assert result["decisions"]["pick"] == [[0, 1]]
     assert result["ignored_decisions"] == 2
+
+
+def test_all_mode_sends_every_group_without_splitting_on_overflow() -> None:
+    groups = [[i, []] for i in range(100)]
+    calls = []
+
+    def request(batch: list) -> dict:
+        calls.append(batch)
+        raise RuntimeError("exceed_context_size_error")
+
+    result = collect_reviews(groups, request, request_mode="all")
+    assert calls == [groups]
+    assert not result["complete"]
+    assert result["decisions"]["uncertain"] == list(range(100))

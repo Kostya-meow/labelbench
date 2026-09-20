@@ -34,11 +34,16 @@ class ProviderResult(BaseModel):
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     annotations: list[Annotation]
     elapsed_seconds: float = Field(ge=0.0)
+    cached: bool = False
+    cache_key: str | None = None
+    cache_origin: Literal["verified", "legacy"] = "verified"
 
 
 class RunRequest(BaseModel):
     image_name: str
     providers: list[str] = Field(min_length=1)
+    force: bool = False
+    progress_id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9-]{16,64}$")
 
 
 class RunResult(BaseModel):
@@ -64,6 +69,11 @@ class LLMReviewRequest(BaseModel):
     prompt: str = Field(min_length=1, max_length=12000)
     providers: list[str] = Field(min_length=1, max_length=20)
     history: list[LLMMessage] = Field(default_factory=list, max_length=20)
+    backend: Literal["lm_studio", "routerai"] = "lm_studio"
+    request_mode: Literal["batched", "all"] = "batched"
+    api_key: str = Field(default="", exclude=True, repr=False)
+    max_output_tokens: int = Field(default=4000, ge=512, le=32768)
+    progress_id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9-]{16,64}$")
 
 
 def safe_child_path(root: Path, user_name: str) -> Path:

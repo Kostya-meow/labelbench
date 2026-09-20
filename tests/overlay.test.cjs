@@ -24,6 +24,7 @@ function page() {
     window: { devicePixelRatio: 1, addEventListener() {}, setTimeout() {} },
     fetch: () => new Promise(() => {}),
   });
+  vm.runInContext(fs.readFileSync('src/labelbench/static/llm_controls.js', 'utf8'), sandbox);
   vm.runInContext(fs.readFileSync('src/labelbench/static/app.js', 'utf8'), sandbox);
   return { sandbox, strokes, get };
 }

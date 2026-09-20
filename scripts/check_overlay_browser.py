@@ -22,6 +22,7 @@ def check_vlm_failure_states(page: Page) -> None:
     assert page.locator('#llm-preview').is_hidden()
     assert page.locator('#llm-apply').is_disabled()
     assert page.locator('#llm-send').is_enabled()
+    assert 'Internal Server Error' in page.locator('#llm-console').inner_text()
     page.unroute(endpoint)
     reply = page.evaluate("""() => ({
       model: 'test-vlm', parsed: true, complete: false, batch_count: 2,
@@ -48,6 +49,52 @@ def check_vlm_failure_states(page: Page) -> None:
     page.wait_for_function("document.querySelector('#llm-status').textContent.includes('Открыт другой результат')")
     assert page.locator('#llm-preview').is_hidden()
     assert page.locator('#llm-apply').is_disabled()
+    page.unroute(endpoint)
+
+
+def check_routerai_controls(page: Page) -> None:
+    """Test both modes and export using an intercepted remote response."""
+    endpoint = '**/api/llm/review'
+    page.locator('#llm-backend').select_option('routerai')
+    assert page.locator('#routerai-key').is_visible()
+    assert page.locator('#llm-model').is_hidden()
+    assert page.locator('#llm-send').is_disabled()
+    page.locator('#routerai-model').fill('deepseek/deepseek-v4-pro-0813')
+    page.locator('#routerai-key').fill('test-key-placeholder')
+    page.locator('#llm-max-tokens').fill('8192')
+    captured: list[dict] = []
+    fixture = Path('temp/routerai-review.json')
+    reply = json.loads(fixture.read_text(encoding='utf-8')) if fixture.is_file() else {
+        'parsed': True, 'complete': True, 'content': '{}', 'refined_annotations': [],
+        'review_annotations': [], 'model': 'deepseek/deepseek-v4-pro-0813',
+    }
+
+    def intercept(route: Route) -> None:
+        body = route.request.post_data_json
+        captured.append(body)
+        route.fulfill(json={**reply, 'backend': 'routerai', 'request_mode': body['request_mode']})
+
+    page.route(endpoint, intercept)
+    for mode in ('batched', 'all'):
+        page.locator('#llm-mode').select_option(mode)
+        page.locator('#llm-send').click()
+        page.wait_for_function("!state.llm.busy && state.llm.resultBackend === 'routerai'")
+        assert page.locator('#llm-preview').is_visible()
+        assert captured[-1]['request_mode'] == mode
+        assert captured[-1]['api_key'] == 'test-key-placeholder'
+        assert captured[-1]['model'] == 'deepseek/deepseek-v4-pro-0813'
+    page.locator('#llm-preview').screenshot(path='temp/routerai-preview.png')
+    with page.expect_download() as download:
+        page.locator('#llm-export').click()
+    exported = json.loads(Path(download.value.path()).read_text(encoding='utf-8'))
+    assert exported['source'] == 'routerai' and exported['request_mode'] == 'all'
+    assert 'test-key-placeholder' not in json.dumps(exported)
+    assert page.evaluate("!Object.values(localStorage).some(v => v.includes('test-key-placeholder'))")
+    page.locator('#routerai-key').fill('')
+    page.locator('#llm-backend').select_option('lm_studio')
+    assert page.locator('#routerai-key').is_hidden()
+    assert page.locator('#llm-model').is_visible()
+    page.locator('#llm-mode').select_option('batched')
     page.unroute(endpoint)
 
 
@@ -135,6 +182,7 @@ def main() -> None:
             page.evaluate("showLlmPreview(true); showResult(state.result)")
             assert page.locator('#llm-preview').is_hidden()
         check_vlm_failure_states(page)
+        check_routerai_controls(page)
         assert not errors, errors
         print(json.dumps({
             "colored_pixels": colored, "page_errors": errors, "filters_resize_cached": "passed",

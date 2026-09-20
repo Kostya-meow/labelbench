@@ -8,7 +8,6 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-import cv2
 import numpy as np
 from PIL import Image
 
@@ -101,6 +100,8 @@ class RFDETRHistoricalProvider(AnnotationProvider):
 
     @staticmethod
     def _polygon(mask: np.ndarray) -> list[list[float]] | None:
+        import cv2
+
         contours, _ = cv2.findContours(
             mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
