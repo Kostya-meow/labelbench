@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,7 +38,8 @@ class ExternalRequest(BaseModel):
     iou: float = Field(default=0.5, gt=0, le=1)
 
 
-def experiment_router(service: AnnotationService, store: ExperimentStore) -> APIRouter:
+def experiment_router(service: AnnotationService, store: ExperimentStore,
+                      gpu_busy: Callable[[], bool] | None = None) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["experiments"])
 
     @router.get("/datasets")
@@ -96,6 +98,8 @@ def experiment_router(service: AnnotationService, store: ExperimentStore) -> API
     @router.post("/experiments", status_code=202)
     def start(request: ExperimentRequest) -> dict[str, Any]:
         try:
+            if gpu_busy and gpu_busy():
+                raise ValueError("GPU занят экспериментом устойчивости; сначала завершите или отмените его")
             return store.start(request)
         except (ValueError, OSError) as error:
             raise HTTPException(400, str(error)) from error

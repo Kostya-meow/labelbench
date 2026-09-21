@@ -10,7 +10,7 @@
 <body>
   <header class="masthead">
     <div><span class="eyebrow">ЛАБОРАТОРИЯ АВТОРАЗМЕТКИ</span><h1>Label<span>Bench</span></h1></div>
-    <nav class="workspace-tabs" aria-label="Режим работы"><button data-tab="viewer" aria-selected="true">Страница</button><button data-tab="experiments" aria-selected="false">Эксперименты</button><a href="/docs" target="_blank" rel="noopener">API ↗</a></nav>
+    <nav class="workspace-tabs" aria-label="Режим работы"><button data-tab="viewer" aria-selected="true">Страница</button><button data-tab="experiments" aria-selected="false">Эксперименты</button><button data-tab="robustness" aria-selected="false">Устойчивость</button><a href="/docs" target="_blank" rel="noopener">API ↗</a></nav>
     <div id="device" class="device">проверяю окружение…</div>
   </header>
   <main>
@@ -120,6 +120,33 @@
       <h3>История запусков</h3><div id="experiment-history" class="experiment-history"></div>
       <details><summary>Проверить свой метод из ноутбука</summary><p>JSON с image_name и annotations: у каждого объекта polygon в пикселях, label и score. Формат экспорта smart_detection_fusion_v4 поддерживается. Результат сохраняется как отдельный запуск.</p><label>Загрузить предсказания <input id="external-import" type="file" accept=".json,application/json"></label></details>
     </section>
+    <section id="robustness-panel" class="experiments-panel" hidden>
+      <div><p class="section-label">НАДЁЖНОСТЬ ГРАНИЦ / ФОНОВЫЙ ЭКСПЕРИМЕНТ</p><h2>Модели как независимые свидетельства</h2><p>Согласие семейств, устойчивость к искажениям и проверка границ по эталону. Закрытие вкладки или чата не останавливает расчёт. Компьютер должен оставаться включённым.</p></div>
+      <details><summary>Новый эксперимент · настройки</summary>
+        <form id="robust-form" class="experiment-config">
+          <label>Название<input id="robust-name" value="Устойчивость строк · 9 преобразований" required></label>
+          <label>Максимальная сторона входа<input id="robust-size" type="number" min="512" max="8192" value="2560"></label>
+          <label>Фото для пробного запуска<input id="robust-limit" type="number" min="0" max="1000" value="0"><small>0 — весь набор</small></label>
+          <label><input id="robust-unlabelled" type="checkbox" checked> Также обработать фото без полного GT</label>
+          <p>Датасет и модели выбираются слева. 9 видов: clean, яркость, контраст, blur, шум, JPEG, scale, поворот ±1,5°. Отдельные варианты PP-OCR считаются одним семейством.</p>
+          <button id="robust-start" class="run-button" type="submit">Запустить в фоне →</button>
+        </form>
+      </details>
+      <div class="experiment-actions"><label>Запуск<select id="robust-history"></select></label><button id="robust-refresh" class="export-button">Обновить</button><button id="robust-cancel" class="export-button" disabled>Отменить эксперимент</button><button id="robust-resume" class="export-button" disabled>Продолжить с контрольной точки</button></div>
+      <div id="robust-counters" class="robust-counters"></div>
+      <p id="robust-status" role="status">Выберите запуск или создайте новый.</p>
+      <progress id="robust-progress" max="1" value="0"></progress>
+      <p class="coordinate-hint">Точность считается только на полностью обработанных страницах с полным GT. Индекс доверия — эвристика, не вероятность. ETA уточняется по мере обработки.</p>
+      <pre id="robust-log" class="experiment-log" role="log"></pre>
+      <div class="robust-charts"><div><h3>Качество методов · F1 @ IoU 0,50</h3><div id="robust-chart"></div></div><div><h3>Устойчивость к преобразованиям</h3><label for="robust-heat-field">Показатель</label><select id="robust-heat-field"><option value="f1">F1 относительно эталона</option><option value="clean_recovery">Доля повторно найденных clean-кандидатов</option><option value="mean_best_iou">Средний IoU с clean-кандидатами</option><option value="latency">Время предсказания, с</option></select><div id="robust-heatmap" class="table-scroll"></div></div></div>
+      <div id="robust-metrics" class="table-scroll"></div>
+      <div id="robust-artifacts" class="experiment-actions"></div>
+      <h3>Проверка выбранных границ</h3>
+      <div class="experiment-actions"><label>Готовая страница<select id="robust-page"></select></label><label>Метод<select id="robust-method"></select></label><button id="robust-open" class="export-button">Показать</button><label><input id="robust-gt" type="checkbox" checked> Эталон · пурпурный</label><label><input id="robust-pred" type="checkbox" checked> Выбранные · зелёный</label></div>
+      <p id="robust-page-status"></p>
+      <div id="robust-view" class="robust-view"><img id="robust-image" alt="Страница эксперимента"><canvas id="robust-overlay"></canvas></div>
+      <details><summary>Почему выбраны эти сегменты</summary><pre id="robust-evidence" class="experiment-log"></pre></details>
+    </section>
   </main>
   <template id="provider-template">
     <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
@@ -128,5 +155,6 @@
   <script src="/static/progress.js?v=1"></script>
   <script src="/static/app.js?v=cancel-1"></script>
   <script src="/static/workbench.js?v=1"></script>
+  <script src="/static/robustness.js?v=1"></script>
 </body>
 </html>

@@ -8,6 +8,7 @@
   function tab(name) {
     document.querySelector('.viewer').hidden = name !== 'viewer';
     $('experiments-panel').hidden = name !== 'experiments';
+    $('robustness-panel').hidden = name !== 'robustness';
     document.querySelectorAll('[data-tab]').forEach(button => button.setAttribute('aria-selected', String(button.dataset.tab === name)));
     requestAnimationFrame(drawAnnotations);
   }

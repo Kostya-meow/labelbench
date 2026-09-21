@@ -7,6 +7,11 @@
 Инструкция: [docs/experiments.md](docs/experiments.md).
 Исследования и план сравнений: [docs/research-2026.md](docs/research-2026.md).
 
+**Устойчивость и объединение границ:** отдельный фоновый worker, SQLite checkpoints,
+9 преобразований без сохранения копий фото, medoid/голосование масок, абляции семейств,
+живой дашборд, отмена/продолжение и статистический отчёт.
+[Протокол и научные основания](docs/robustness-experiment.md).
+
 Локальный API и браузерный интерфейс для сравнения предсказаний семейств
 моделей: **PP-OCRv5 Server**, **PP-OCRv6 Medium Det**, **Mask2Former**, **SAM 2.1**, **YOLO26-seg**, **RF-DETR Historical Textline**,
 **Doc-UFCN Generic Historical Line**, **Eynollah Textline** и **Riksarkivet RTMDet Lines**.

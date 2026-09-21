@@ -20,6 +20,8 @@ from labelbench.llm import LMStudioError, list_models, review_run
 from labelbench.progress import Progress, ProgressJournal, silent_progress
 from labelbench.registry import default_registry
 from labelbench.review_store import save_review
+from labelbench.robust_api import robust_router
+from labelbench.robust_manager import RobustManager
 from labelbench.service import AnnotationService
 from labelbench.settings import Settings
 
@@ -38,7 +40,9 @@ async def lifespan(_: FastAPI):
 app = FastAPI(title="LabelBench", version="0.1.0", lifespan=lifespan)
 app.state.progress = ProgressJournal()
 app.state.experiments = ExperimentStore(service)
-app.include_router(experiment_router(service, app.state.experiments))
+app.state.robustness = RobustManager(settings)
+app.include_router(experiment_router(service, app.state.experiments, app.state.robustness.active))
+app.include_router(robust_router(app.state.robustness, app.state.experiments))
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/files/images", StaticFiles(directory=settings.images_dir), name="images")
 app.mount("/files/output", StaticFiles(directory=settings.output_dir), name="output")
@@ -188,6 +192,8 @@ def create_run(request: RunRequest) -> Any:
 
 
 def _create_run(request: RunRequest, progress: Progress = silent_progress) -> Any:
+    if app.state.robustness.active():
+        raise HTTPException(409, "GPU занят фоновым экспериментом. Сохранённые результаты доступны во вкладке Устойчивость.")
     try:
         return service.run(request.image_name, request.providers, force=request.force, progress=progress,
                            dataset_id=request.dataset_id, options=request.options)

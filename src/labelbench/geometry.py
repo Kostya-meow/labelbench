@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from shapely import make_valid
 from shapely.geometry import Polygon
+from shapely.strtree import STRtree
 
 from labelbench.contracts import Annotation
 
@@ -33,7 +34,13 @@ def overlap_matrix(first: list[Annotation], second: list[Annotation]) -> np.ndar
     """Use exact planar polygon areas, never rectangle IoU."""
     a = [shape(item.polygon) for item in first]
     b = [shape(item.polygon) for item in second]
-    return np.asarray([[polygon_iou(x, y) for y in b] for x in a]).reshape(len(a), len(b))
+    result = np.zeros((len(a), len(b)))
+    tree = STRtree(b)
+    for i, polygon in enumerate(a):
+        if polygon is not None:
+            for j in tree.query(polygon, predicate="intersects"):
+                result[i, j] = polygon_iou(polygon, b[j])
+    return result
 
 
 def mask_polygon(mask: np.ndarray) -> list[list[float]] | None:

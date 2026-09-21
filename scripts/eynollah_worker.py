@@ -56,7 +56,7 @@ def _encode_binary_mask(mask: np.ndarray) -> dict[str, Any]:
     return {"size": list(mask.shape), "counts": counts}
 
 
-def _annotations(model: Any, image_path: Path, device: str) -> dict[str, Any]:
+def _annotations(model: Any, image_path: Path, device: str, include_masks: bool = True) -> dict[str, Any]:
     try:
         rgb = np.asarray(Image.open(image_path).convert("RGB"))
     except OSError as error:
@@ -80,9 +80,14 @@ def _annotations(model: Any, image_path: Path, device: str) -> dict[str, Any]:
         polygon = contour.reshape(-1, 2)
         if len(polygon) < 3:
             continue
-        contour_mask = np.zeros((height, width), dtype=np.uint8)
-        cv2.drawContours(contour_mask, [contour], -1, 1, thickness=-1)
-        score = float(np.mean(confidence[contour_mask.astype(bool)]))
+        if include_masks:
+            contour_mask = np.zeros((height, width), dtype=np.uint8)
+            cv2.drawContours(contour_mask, [contour], -1, 1, thickness=-1)
+            score = float(np.mean(confidence[contour_mask.astype(bool)]))
+        else:
+            contour_mask = np.zeros((box_height, box_width), dtype=np.uint8)
+            cv2.drawContours(contour_mask, [contour - np.array([x, y])], -1, 1, thickness=-1)
+            score = float(np.mean(confidence[y:y+box_height, x:x+box_width][contour_mask.astype(bool)]))
         annotations.append(
             {
                 "id": f"eynollah-textline-{uuid.uuid4().hex[:12]}",
@@ -90,7 +95,7 @@ def _annotations(model: Any, image_path: Path, device: str) -> dict[str, Any]:
                 "score": min(1.0, max(0.0, score)),
                 "bbox_xywh": [float(x), float(y), float(box_width), float(box_height)],
                 "polygon": [[float(point[0]), float(point[1])] for point in polygon],
-                "mask_rle": _encode_binary_mask(contour_mask.astype(bool)),
+                "mask_rle": _encode_binary_mask(contour_mask.astype(bool)) if include_masks else None,
                 "attributes": {"class_id": 1, "device": device, "area": int(area)},
                 "provider": "eynollah_textline",
             }

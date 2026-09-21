@@ -8,6 +8,17 @@ from pathlib import Path
 from typing import Any
 
 
+def read_json(path: Path) -> Any:
+    """Read an atomic snapshot, retrying transient Windows sharing violations."""
+    for attempt in range(20):
+        try:
+            return json.loads(path.read_text(encoding="utf-8"))
+        except PermissionError:
+            if attempt == 19:
+                raise
+            time.sleep(0.025)
+
+
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = None

@@ -17,6 +17,7 @@ dependencies = [
 
 [project.optional-dependencies]
 onnx = ["onnx>=1.17,<2", "onnxruntime-gpu>=1.21,<2"]
+experiments = ["matplotlib>=3.8,<4", "opencv-python-headless>=4.10,<4.12"]
 ocr = ["paddleocr>=3.4", "paddlepaddle>=3.0"]
 vision = ["torch>=2.5.1", "torchvision>=0.20.1", "transformers>=5.8.0", "accelerate>=1.2", "scipy>=1.13", "safetensors>=0.8", "ultralytics>=8.4"]
 yolo26 = ["ultralytics>=8.4"]

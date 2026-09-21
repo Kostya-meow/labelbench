@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import importlib.metadata
-import json
 import platform
 import subprocess
 import time
@@ -21,7 +20,7 @@ from labelbench.evaluation import aggregate, evaluate
 from labelbench.fusion import fuse
 from labelbench.inference_options import ProviderOptions
 from labelbench.service import AnnotationService
-from labelbench.storage import write_json
+from labelbench.storage import read_json, write_json
 
 
 class ExperimentRequest(BaseModel):
@@ -51,16 +50,16 @@ class ExperimentStore:
         self._active: dict[str, Event] = {}
         # A previous process cannot still own work in this single-server store.
         for path in self.directory.glob("*/experiment.json"):
-            item = json.loads(path.read_text(encoding="utf-8"))
+            item = read_json(path)
             if item["status"] in {"queued", "running"}:
                 item.update(status="interrupted", message="Сервер перезапущен; завершённые страницы сохранены")
                 write_json(path, item)
 
     def get(self, identifier: str) -> dict[str, Any]:
-        return json.loads(safe_child_path(self.directory, f"{identifier}/experiment.json").read_text(encoding="utf-8"))
+        return read_json(safe_child_path(self.directory, f"{identifier}/experiment.json"))
 
     def list(self) -> list[dict[str, Any]]:
-        return [json.loads(path.read_text(encoding="utf-8")) for path in
+        return [read_json(path) for path in
                 sorted(self.directory.glob("*/experiment.json"), key=lambda p: p.stat().st_mtime, reverse=True)]
 
     def start(self, request: ExperimentRequest) -> dict[str, Any]:
@@ -106,7 +105,7 @@ class ExperimentStore:
         item = self.get(identifier)
         if not 0 <= index < len(item["images"]):
             raise ValueError("Invalid page index")
-        return json.loads(safe_child_path(self.directory, f"{identifier}/pages/{index}.json").read_text(encoding="utf-8"))
+        return read_json(safe_child_path(self.directory, f"{identifier}/pages/{index}.json"))
 
     def _run(self, item: dict[str, Any], config: ExperimentRequest, event: Event) -> None:
         started = time.monotonic()
