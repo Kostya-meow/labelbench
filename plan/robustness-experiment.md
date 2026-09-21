@@ -7,6 +7,6 @@ Build a standalone, resumable SQLite-backed worker. Transform one image at a tim
 - [x] SQLite checkpoints per model/view and per page, worker heartbeat/cancel/resume, fixed configuration and environment.
 - [x] Live dashboard, ETA, comparison plots, page overlays and downloadable analysis.
 - [x] Unit/integration/browser checks, real small pilot including restart/cancel. 82 Python tests, JS overlay test, responsive browser check. Final pilot 760f1da02735: 108/108 tasks, 3 pages, 0 errors; 2 GT pages and 1 intentionally excluded from scoring.
-- [ ] Freeze protocol, commit, launch full background experiment, verify live progress.
+- [x] Freeze protocol, commit, launch full background experiment, verify live progress. Run `e8ca6f89dbb2`: 1000 photos, 977 scored GT pages, 36000 model/view steps; GPU active, checkpoints accumulating. Code `98ecdc7` pushed. Results pending.
 
 No parameter selection on test GT; agreement is not truth. Document/page dependence limits page-bootstrap CIs. The experiment uses pretrained networks without target-data fine-tuning, not untrained networks.
