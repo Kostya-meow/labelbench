@@ -8,6 +8,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from labelbench.inference_options import ProviderOptions
+
 
 class Annotation(BaseModel):
     """One visual candidate produced by a model."""
@@ -43,6 +45,8 @@ class RunRequest(BaseModel):
     image_name: str
     providers: list[str] = Field(min_length=1)
     force: bool = False
+    dataset_id: str | None = None
+    options: dict[str, ProviderOptions] = Field(default_factory=dict)
     progress_id: str | None = Field(default=None, pattern=r"^[a-zA-Z0-9-]{16,64}$")
 
 
@@ -52,6 +56,9 @@ class RunResult(BaseModel):
     image_size: list[int]
     providers: dict[str, ProviderResult]
     consensus_score: float = Field(ge=0.0, le=1.0)
+    dataset_id: str | None = None
+    options: dict[str, ProviderOptions] = Field(default_factory=dict)
+    image_sha256: str | None = None
 
 
 class LLMMessage(BaseModel):
@@ -68,6 +75,7 @@ class LLMReviewRequest(BaseModel):
     model: str = Field(min_length=1, max_length=256)
     prompt: str = Field(min_length=1, max_length=12000)
     providers: list[str] = Field(min_length=1, max_length=20)
+    annotation_ids: list[str] | None = Field(default=None, max_length=30000)
     history: list[LLMMessage] = Field(default_factory=list, max_length=20)
     backend: Literal["lm_studio", "routerai"] = "lm_studio"
     request_mode: Literal["batched", "all"] = "batched"

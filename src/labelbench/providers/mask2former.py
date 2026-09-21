@@ -11,6 +11,8 @@ import numpy as np
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.geometry import mask_polygon
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 
 
@@ -18,17 +20,10 @@ def encode_binary_mask(mask: np.ndarray) -> dict[str, Any]:
     """Encode a boolean mask as compact COCO-style uncompressed RLE."""
 
     pixels = mask.astype(np.uint8).flatten(order="F")
-    counts: list[int] = []
-    previous = 0
-    run_length = 0
-    for pixel in pixels:
-        if int(pixel) == previous:
-            run_length += 1
-        else:
-            counts.append(run_length)
-            previous = int(pixel)
-            run_length = 1
-    counts.append(run_length)
+    boundaries = np.flatnonzero(pixels[1:] != pixels[:-1]) + 1
+    counts = np.diff(np.concatenate(([0], boundaries, [pixels.size]))).tolist()
+    if pixels.size and pixels[0]:
+        counts.insert(0, 0)
     return {"size": list(mask.shape), "counts": counts}
 
 
@@ -42,10 +37,9 @@ class Mask2FormerProvider(AnnotationProvider):
         self._model: Any | None = None
 
     def availability(self) -> ProviderAvailability:
-        try:
-            import torch  # noqa: F401
-            import transformers  # noqa: F401
-        except ImportError:
+        from importlib.util import find_spec
+
+        if not find_spec("torch") or not find_spec("transformers"):
             return ProviderAvailability(False, "Install: uv sync --extra vision")
         return ProviderAvailability(True, "Ready; weights download on first inference")
 
@@ -72,7 +66,7 @@ class Mask2FormerProvider(AnnotationProvider):
         with torch.inference_mode():
             outputs = model(**inputs)
         result = processor.post_process_instance_segmentation(
-            outputs, target_sizes=[(image.height, image.width)], threshold=0.45
+            outputs, target_sizes=[(image.height, image.width)], threshold=confidence(0.45)
         )[0]
         segmentation = result["segmentation"].cpu().numpy()
         annotations: list[Annotation] = []
@@ -97,6 +91,7 @@ class Mask2FormerProvider(AnnotationProvider):
                         float(np.ptp(ys) + 1),
                     ],
                     mask_rle=encode_binary_mask(mask),
+                    polygon=mask_polygon(mask),
                     attributes={"category_id": label_id, "area": int(mask.sum())},
                     provider=self.name,
                 )

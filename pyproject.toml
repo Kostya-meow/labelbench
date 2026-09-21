@@ -10,10 +10,13 @@ dependencies = [
     "python-multipart>=0.0.12",
     "pillow>=10.4",
     "numpy>=1.26",
+    "scipy>=1.13",
+    "shapely>=2.0,<3",
     "pydantic-settings>=2.6",
 ]
 
 [project.optional-dependencies]
+onnx = ["onnx>=1.17,<2", "onnxruntime-gpu>=1.21,<2"]
 ocr = ["paddleocr>=3.4", "paddlepaddle>=3.0"]
 vision = ["torch>=2.5.1", "torchvision>=0.20.1", "transformers>=5.8.0", "accelerate>=1.2", "scipy>=1.13", "safetensors>=0.8", "ultralytics>=8.4"]
 yolo26 = ["ultralytics>=8.4"]

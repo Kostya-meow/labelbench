@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import uuid
 from pathlib import Path
 from threading import Lock
@@ -10,6 +11,8 @@ from PIL import Image, ImageDraw
 
 from labelbench.annotation_cache import cache_key, load_cached, load_legacy, save_cached
 from labelbench.contracts import Annotation, ProviderResult, RunResult, safe_child_path
+from labelbench.datasets import DatasetStore
+from labelbench.inference_options import ProviderOptions, current_options
 from labelbench.progress import Progress, silent_progress
 from labelbench.providers.base import AnnotationProvider
 from labelbench.settings import Settings
@@ -36,6 +39,12 @@ class AnnotationService:
         self.settings = settings
         self.providers = providers
         self._inference_lock = Lock()
+        self.datasets = DatasetStore(settings.output_dir)
+
+    def image_path(self, image_name: str, dataset_id: str | None = None) -> Path:
+        if dataset_id:
+            return self.datasets.image_path(dataset_id, image_name)
+        return safe_child_path(self.settings.images_dir, image_name)
 
     def list_images(self) -> list[str]:
         return sorted(
@@ -45,40 +54,61 @@ class AnnotationService:
         )
 
     def run(self, image_name: str, provider_names: list[str], force: bool = False,
-            progress: Progress = silent_progress) -> RunResult:
+            progress: Progress = silent_progress, *, dataset_id: str | None = None,
+            options: dict[str, ProviderOptions] | None = None, persist: bool = True,
+            allow_legacy: bool = True) -> RunResult:
         progress("Проверяю изображение и выбранные детекторы")
-        image_path = safe_child_path(self.settings.images_dir, image_name)
+        image_path = self.image_path(image_name, dataset_id)
+        options = options or {}
+        if set(options) - set(provider_names):
+            raise ValueError("Options refer to unselected providers")
         if not image_path.is_file() or image_path.suffix.lower() not in ALLOWED_SUFFIXES:
             raise FileNotFoundError("Image not found or unsupported")
         unknown = set(provider_names) - self.providers.keys()
         if unknown:
             raise KeyError(f"Unknown providers: {', '.join(sorted(unknown))}")
         run_id = uuid.uuid4().hex[:12]
+        image_hash = hashlib.sha256(image_path.read_bytes()).hexdigest()
         results: dict[str, ProviderResult] = {}
         for name in provider_names:
             provider = self.providers[name]
+            config = options.get(name, ProviderOptions())
+            signature = config.model_dump(exclude_none=True)
             progress(f"{name}: ожидаю очередь обработки")
             with self._inference_lock:
                 progress(f"{name}: проверяю сохранённую разметку")
-                key = cache_key(image_path, provider)
+                key = cache_key(image_path, provider, signature)
                 result = None if force else load_cached(self.settings.output_dir, key)
-                if result is None and not force:
+                if result is None and not force and not signature and not dataset_id and allow_legacy:
                     result = load_legacy(self.settings.output_dir, image_path, image_name, provider)
                 if result is None:
                     progress(f"{name}: проверяю окружение, загружаю модель и выполняю inference")
                     status = provider.availability()
                     if not status.available:
                         raise RuntimeError(f"{name} unavailable: {status.detail}")
-                    result = provider.annotate(image_path)
+                    context = current_options.set(config)
+                    try:
+                        result = provider.annotate(image_path)
+                    finally:
+                        current_options.reset(context)
+                    result = result.model_copy(update={"annotations": [
+                        item for item in result.annotations
+                        if (config.confidence is None or item.score >= config.confidence)
+                        and (config.labels is None or item.label in config.labels)
+                    ]})
+                    if hashlib.sha256(image_path.read_bytes()).hexdigest() != image_hash:
+                        raise RuntimeError("Image changed during inference; result was not cached")
                     # First inference may download a checkpoint used by the signature.
-                    key = cache_key(image_path, provider)
+                    key = cache_key(image_path, provider, signature)
                 else:
                     progress(f"{name}: использую сохранённую разметку")
                 result = result.model_copy(update={"image_name": image_name})
                 result = save_cached(self.settings.output_dir, key, result)
-            self._write_provider_result(run_id, result)
+            if persist:
+                self._write_provider_result(run_id, result)
             progress(f"{name}: {len(result.annotations)} сегментов; сохраняю JSON и отрисовку")
-            self._draw_overlay(run_id, image_path, result)
+            if persist:
+                self._draw_overlay(run_id, image_path, result)
             results[name] = result
         with Image.open(image_path) as image:
             image_size = [image.width, image.height]
@@ -88,7 +118,10 @@ class AnnotationService:
             image_size=image_size,
             providers=results,
             consensus_score=self._consensus(results),
+            dataset_id=dataset_id, options=options, image_sha256=image_hash,
         )
+        if not persist:
+            return merged
         combined_dir = self.settings.output_dir / "combined" / run_id
         progress("Сохраняю общий результат и изображение")
         combined_dir.mkdir(parents=True, exist_ok=True)
@@ -140,15 +173,14 @@ class AnnotationService:
 
     @staticmethod
     def _consensus(results: dict[str, ProviderResult]) -> float:
-        boxes = [annotation.bbox_xywh for result in results.values() for annotation in result.annotations]
-        if len(boxes) < 2:
+        if len(results) < 2:
             return 0.0
-        overlaps = [
-            AnnotationService._iou(first, second)
-            for index, first in enumerate(boxes)
-            for second in boxes[index + 1 :]
-        ]
-        return round(max(overlaps, default=0.0), 4)
+        from labelbench.geometry import polygon_iou, shape
+
+        candidates = [(name, shape(a.polygon)) for name, r in results.items() for a in r.annotations]
+        agreement = [max((polygon_iou(a, b) for other, b in candidates if other != name), default=0)
+                     for name, a in candidates]
+        return round(sum(agreement) / len(agreement), 4) if agreement else 0.0
 
     @staticmethod
     def _iou(first: list[float], second: list[float]) -> float:

@@ -15,6 +15,7 @@ from typing import Any
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 
 
@@ -58,7 +59,7 @@ class PPOCRProvider(AnnotationProvider):
         started_at = time.perf_counter()
         with Image.open(image_path) as image:
             size = [image.width, image.height]
-        prediction = self._load_model().predict(str(image_path))[0]
+        prediction = self._load_model().predict(str(image_path), box_thresh=confidence(0.6))[0]
         raw = prediction.get("res", prediction) if hasattr(prediction, "get") else prediction
         polygons = raw.get("dt_polys", [])
         scores = raw.get("dt_scores", [])
@@ -104,6 +105,7 @@ class PPOCRProvider(AnnotationProvider):
                     str(output_path),
                     "--device",
                     self._device,
+                    "--confidence", str(confidence(0.6)),
                 ],
                 check=True,
             )

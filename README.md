@@ -1,6 +1,13 @@
 # LabelBench — локальная авторазметка изображений
 
-Локальный API и браузерный интерфейс для сравнения предсказаний девяти независимых
+**Платформа экспериментов:** датасеты с GT без копирования фото, confidence каждой
+модели, polygon NMS / consensus, precision / recall / F1, история и отмена.
+Свой метод из notebooks можно оценить через импорт JSON или API.
+
+Инструкция: [docs/experiments.md](docs/experiments.md).
+Исследования и план сравнений: [docs/research-2026.md](docs/research-2026.md).
+
+Локальный API и браузерный интерфейс для сравнения предсказаний семейств
 моделей: **PP-OCRv5 Server**, **PP-OCRv6 Medium Det**, **Mask2Former**, **SAM 2.1**, **YOLO26-seg**, **RF-DETR Historical Textline**,
 **Doc-UFCN Generic Historical Line**, **Eynollah Textline** и **Riksarkivet RTMDet Lines**.
 Новые модели добавляются

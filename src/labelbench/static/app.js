@@ -19,6 +19,7 @@ const elements = {
   llmResultMessage: document.querySelector('#llm-result-message'),
 };
 const colors = {
+  yolo26_onnx: '#aa790b',
   ppocr6: '#16a085',
   ppocr6_small: '#287fca', ppocr6_tiny: '#b068b0',
   ppocr: '#f36f38', mask2former: '#29b6a6', sam2: '#9b73e8', yolo26: '#e2b93b',
@@ -30,6 +31,7 @@ const reviewStyles = {
   modified: ['#1675db', 'Исправлено'], merged: ['#884bd8', 'Объединено'], added: ['#009d99', 'Добавлено'],
 };
 const providerTitles = {
+  yolo26_onnx: 'YOLO26-seg · ONNX GPU',
   ppocr6: 'PP-OCRv6 Medium Det',
   ppocr6_small: 'PP-OCRv6 Small Det', ppocr6_tiny: 'PP-OCRv6 Tiny Det',
   ppocr: 'PP-OCRv5 Server', mask2former: 'Mask2Former', sam2: 'SAM 2.1', yolo26: 'YOLO26-seg',
@@ -50,18 +52,47 @@ async function loadHealth() {
   elements.device.textContent = `device: ${state.health.device}`;
   elements.providers.replaceChildren();
   Object.entries(state.health.providers).forEach(([name, info]) => {
+    if (name.endsWith('_onnx') && state.health.providers[name.slice(0, -5)]) return;
     const row = elements.template.content.firstElementChild.cloneNode(true);
     const input = row.querySelector('input');
-    input.value = name; input.checked = info.available; input.disabled = !info.available;
-    row.querySelector('.provider-name').textContent = name;
+    input.value = name; input.checked = info.available && ['ppocr6_tiny', 'rfdetr_historical', 'docufcn'].includes(name); input.disabled = !info.available;
+    row.querySelector('.provider-name').textContent = providerTitles[name] || name;
     row.querySelector('.provider-status').textContent = info.detail;
     if (!info.available) row.classList.add('off');
     elements.providers.append(row);
+    const onnxName = `${name}_onnx`;
+    const onnxInfo = state.health.providers[onnxName];
+    if (onnxInfo) {
+      providerTitles[onnxName] = `${providerTitles[name] || name} · ONNX`;
+      colors[onnxName] = colors[name];
+      const backend = document.createElement('select');
+      backend.className = 'backend-select';
+      backend.setAttribute('aria-label', `Backend ${name}`);
+      backend.add(new Option('PyTorch', name));
+      const option = new Option(onnxInfo.available ? 'ONNX · GPU' : 'ONNX · нужен экспорт', onnxName);
+      option.disabled = !onnxInfo.available;
+      backend.add(option);
+      backend.addEventListener('change', () => {
+        input.value = backend.value;
+        settings.querySelector('input').dataset.threshold = backend.value;
+        row.querySelector('.provider-status').textContent = state.health.providers[backend.value].detail;
+        updateRunEnabled();
+      });
+      elements.providers.append(backend);
+    }
+    const settings = document.createElement('label');
+    settings.className = 'threshold-control';
+    settings.innerHTML = `Confidence <input type="number" data-threshold="${name}" min="0" max="1" step="0.05" placeholder="auto" aria-label="Confidence ${name}">`;
+    const hint = document.createElement('small');
+    hint.textContent = ['docufcn', 'eynollah_textline', 'rtmdet_lines'].includes(name) ? 'Фильтр найденных объектов' : 'Порог модели';
+    settings.append(hint); elements.providers.append(settings);
   });
   updateRunEnabled();
 }
 async function loadImages() {
-  const { images } = await json('/api/images');
+  const dataset = document.querySelector('#dataset-select')?.value;
+  const data = await json(dataset ? `/api/datasets/${dataset}` : '/api/images');
+  const images = dataset ? data.images.map(x => x.name) : data.images;
   elements.image.replaceChildren();
   if (!images.length) elements.image.add(new Option('Нет доступных изображений', ''));
   images.forEach((name) => elements.image.add(new Option(name, name)));
@@ -71,7 +102,21 @@ function updateRunEnabled() {
   elements.run.disabled = state.runBusy || !elements.image.value || !document.querySelector('.provider-row input:checked');
 }
 function selectProviders() { return [...document.querySelectorAll('.provider-row input:checked')].map((input) => input.value); }
-function imageUrl(name) { return `/files/images/${name.split('/').map(encodeURIComponent).join('/')}`; }
+function imageUrl(name) {
+  const dataset = state.result?.dataset_id;
+  return dataset ? `/api/datasets/${dataset}/image?name=${encodeURIComponent(name)}` : `/files/images/${name.split('/').map(encodeURIComponent).join('/')}`;
+}
+function providerOptions() {
+  const options = {};
+  selectProviders().forEach(name => {
+    const input = document.querySelector(`[data-threshold="${name}"]`);
+    if (input && input.value !== '') {
+      if (!input.checkValidity()) throw new Error(`Confidence ${name}: допустимо 0–1`);
+      options[name] = { confidence: Number(input.value) };
+    }
+  });
+  return options;
+}
 function safeColor(value, fallback) { return /^#[0-9a-f]{6}$/i.test(value) ? value : fallback; }
 function ensureFilter(provider, annotations) {
   const previous = state.filters[provider] || { visible: true, labels: {}, colors: {} };
@@ -79,7 +124,7 @@ function ensureFilter(provider, annotations) {
   const next = { visible: previous.visible !== false, labels: {}, colors: { ...previous.colors } };
   labels.forEach((label, index) => {
     next.labels[label] = previous.labels[label] !== false;
-    next.colors[label] = safeColor(previous.colors[label], index ? classColors[index % classColors.length] : colors[provider] || '#ffffff');
+    next.colors[label] = safeColor(previous.colors[label], index ? classColors[index % classColors.length] : colors[provider] || '#0d7f80');
   });
   state.filters[provider] = next;
 }
@@ -135,6 +180,7 @@ function showResult(result) {
   updateLlmEnabled();
   requestAnimationFrame(drawAnnotations);
   window.setTimeout(drawAnnotations, 120);
+  window.dispatchEvent(new CustomEvent('labelbench-result', {detail: result}));
 }
 function drawAnnotation(context, annotation, color, imageRect, wrapRect, result) {
   const offsetX = imageRect.left - wrapRect.left;
@@ -160,7 +206,7 @@ function drawAnnotation(context, annotation, color, imageRect, wrapRect, result)
   context.stroke();
   context.fillStyle = color;
   context.font = '10px DM Mono, monospace';
-  context.fillText(caption, offsetX + x * sx + 3, Math.max(10, offsetY + y * sy - 5));
+  if (document.querySelector('#show-captions')?.checked !== false) context.fillText(caption, offsetX + x * sx + 3, Math.max(10, offsetY + y * sy - 5));
 }
 function drawAnnotations() {
   const result = state.result;
@@ -184,6 +230,7 @@ function drawAnnotations() {
       drawAnnotation(context, annotation, state.filters[provider]?.colors[annotation.label] || colors[provider] || '#fff', imageRect, wrapRect, result);
     });
   });
+  window.dispatchEvent(new Event('labelbench-drawn'));
 }
 function drawLlmPreview() {
   if (!state.result || elements.llmPreview.hidden || !elements.llmSource.naturalWidth) return;
@@ -283,6 +330,7 @@ async function sendToLlm() {
       body: JSON.stringify({
         run_id: state.result.run_id, ...options, prompt, progress_id: journal.identifier,
         providers: Object.keys(state.result.providers).filter(name => state.filters[name]?.visible !== false),
+        annotation_ids: Object.entries(state.result.providers).flatMap(([name,item]) => visibleAnnotations(name,item).map(a => a.id)),
       }),
     });
     clearInterval(timer);
@@ -303,6 +351,7 @@ async function sendToLlm() {
     elements.llmResultMessage.textContent = data.parsed
       ? `${data.retried ? 'Ответ получен после автоматического повтора. ' : ''}${data.notes || ''}${data.invalid_decisions ? ' Некорректных решений пропущено: ' + data.invalid_decisions : ''}`
       : `Итоговое изображение не построено: ${data.notes || 'незавершённый JSON'}. Исходная разметка сохранена.`;
+    if (data.evaluation) elements.llmResultMessage.textContent += ` GT @ IoU 0.5: F1 ${data.evaluation.f1.toFixed(3)}, precision ${data.evaluation.precision.toFixed(3)}, recall ${data.evaluation.recall.toFixed(3)}.`;
     elements.llmApply.disabled = !data.parsed;
     elements.llmExport.disabled = !data.parsed;
     if (!data.parsed) elements.llmApply.checked = false;
@@ -329,6 +378,7 @@ function exportLlmResult() {
     request_mode: state.llm.resultMode,
     image_name: state.result.image_name, image_size: state.result.image_size,
     run_id: state.result.run_id, review: state.llm.compactReview, notes: state.llm.notes,
+    annotations: state.llm.refinedAnnotations,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
   const link = document.createElement('a'); link.href = URL.createObjectURL(blob);
@@ -345,7 +395,7 @@ async function run() {
   try {
     const result = await json('/api/runs', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_name: elements.image.value, providers: selectProviders(), force: document.querySelector('#force-rerun').checked, progress_id: journal.identifier }),
+      body: JSON.stringify({ image_name: elements.image.value, providers: selectProviders(), options: providerOptions(), dataset_id: document.querySelector('#dataset-select')?.value || null, force: document.querySelector('#force-rerun').checked, progress_id: journal.identifier }),
     });
     showResult(result);
     elements.status.textContent = `Готово: run ${result.run_id}`;

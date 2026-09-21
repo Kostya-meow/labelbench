@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import time
+from importlib.util import find_spec
 from pathlib import Path
 from typing import Any
 
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 from labelbench.settings import Settings
 
@@ -25,12 +27,11 @@ class PPOCR6Provider(AnnotationProvider):
         self._processor: Any = None
 
     def availability(self) -> ProviderAvailability:
-        try:
-            import cv2  # noqa: F401
-            import transformers
-
-            getattr(transformers, self.architecture)
-        except (ImportError, AttributeError):
+        specification = find_spec("transformers")
+        module = "pp_ocrv6_medium_det" if "Medium" in self.architecture else "pp_ocrv6_small_det"
+        if not specification or not specification.origin or not find_spec("cv2"):
+            return ProviderAvailability(False, "Run bat/INSTALL_PPOCR6.bat")
+        if not (Path(specification.origin).parent / "models" / module).is_dir():
             return ProviderAvailability(False, "Run bat/INSTALL_PPOCR6.bat")
         return ProviderAvailability(True, "Ready; PP-OCRv6 text detection, no recognition")
 
@@ -63,7 +64,8 @@ class PPOCR6Provider(AnnotationProvider):
         with torch.inference_mode():
             output = model(**inputs)
         result = processor.post_process_object_detection(
-            output, target_sizes=torch.tensor([[image.height, image.width]])
+            output, target_sizes=torch.tensor([[image.height, image.width]]),
+            box_threshold=confidence(0.6),
         )[0]
         annotations = []
         for index, (points, score) in enumerate(zip(result["boxes"], result["scores"], strict=True)):

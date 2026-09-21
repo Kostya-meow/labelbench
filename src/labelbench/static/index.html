@@ -3,19 +3,23 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>LabelBench / Auto Annotation</title>
+  <title>LabelBench / Лаборатория разметки</title>
   <link rel="stylesheet" href="/static/style.css?v=vlm-preview">
+  <link rel="stylesheet" href="/static/workbench.css?v=1">
 </head>
 <body>
   <header class="masthead">
-    <div><span class="eyebrow">LOCAL VISION WORKBENCH</span><h1>Label<span>Bench</span></h1></div>
+    <div><span class="eyebrow">ЛАБОРАТОРИЯ АВТОРАЗМЕТКИ</span><h1>Label<span>Bench</span></h1></div>
+    <nav class="workspace-tabs" aria-label="Режим работы"><button data-tab="viewer" aria-selected="true">Страница</button><button data-tab="experiments" aria-selected="false">Эксперименты</button><a href="/docs" target="_blank" rel="noopener">API ↗</a></nav>
     <div id="device" class="device">проверяю окружение…</div>
   </header>
   <main>
     <aside class="control-panel">
       <section>
         <p class="section-label">01 / ИЗОБРАЖЕНИЕ</p>
-        <label for="image-select">Файл из <code>data/images</code></label>
+        <label for="dataset-select">Набор данных</label><select id="dataset-select"><option value="">Рабочие изображения</option></select>
+        <details class="dataset-import"><summary>Подключить папку с GT</summary><label>Путь к папке<input id="dataset-root" placeholder="Папка с dataset.json"></label><button id="dataset-import" class="export-button">Подключить</button><p id="dataset-status" role="status"></p></details>
+        <label for="image-select">Изображение</label>
         <select id="image-select"><option>Нет доступных изображений</option></select>
         <button id="refresh" class="text-button">↻ обновить список</button>
       </section>
@@ -45,8 +49,10 @@
     <section class="viewer">
       <div class="viewer-head">
         <div><p class="section-label">03 / СРАВНЕНИЕ</p><h2 id="image-title">ожидание изображения</h2></div>
-        <div class="stat"><span>CONSENSUS</span><strong id="consensus">—</strong></div>
+        <div class="stat" title="Средний лучший polygon IoU с другой моделью. Не оценка точности."><span>СОГЛАСИЕ · НЕ ТОЧНОСТЬ</span><strong id="consensus">—</strong></div>
       </div>
+      <div class="viewer-toolbar"><label><input id="show-captions" type="checkbox"> Подписи</label><label><input id="show-gt" type="checkbox" checked> Эталон <i class="gt-swatch"></i></label><button id="fullscreen" class="text-button">⛶ На весь экран</button><button id="evaluate-page" class="export-button" disabled>Сравнить с GT</button></div>
+      <div id="page-metrics" aria-live="polite"></div>
       <div class="canvas-wrap" id="canvas-wrap">
         <img id="source" alt="Исходное изображение">
         <canvas id="overlay" aria-label="Наложение разметки"></canvas>
@@ -91,6 +97,29 @@
         </section>
       </section>
     </section>
+    <section id="experiments-panel" class="experiments-panel" hidden>
+      <div><p class="section-label">ЭКСПЕРИМЕНТЫ / ВОСПРОИЗВОДИМОЕ СРАВНЕНИЕ</p><h2>От предположения к измерению</h2><p>Выберите датасет и модели слева. Каждый запуск сохраняет настройки, список страниц и результаты.</p></div>
+      <form id="experiment-form" class="experiment-config">
+        <label>Название<input id="experiment-name" value="Сравнение детекторов" required maxlength="120"></label>
+        <label>Выборка<select id="experiment-split"><option value="dev">Dev · 20% страниц</option><option value="test">Test · 80% страниц</option><option value="all">Все · исследовательский запуск</option></select></label>
+        <label>Максимум страниц<input id="experiment-limit" type="number" min="1" max="10000" value="10" required></label>
+        <label>Seed разбиения<input id="experiment-seed" type="number" value="42" required></label>
+        <label>IoU совпадения с GT<input id="experiment-iou" type="number" min="0.01" max="1" step="0.05" value="0.5" required></label>
+        <label>IoU для объединения<input id="fusion-iou" type="number" min="0.01" max="1" step="0.05" value="0.5" required></label>
+        <label>Минимум разных моделей<input id="fusion-votes" type="number" min="1" max="20" value="2" required></label>
+        <fieldset><legend>Сравнить с отдельными моделями</legend><label><input type="checkbox" name="method" value="union" checked> Все кандидаты</label><label><input type="checkbox" name="method" value="nms" checked> Polygon NMS</label><label><input type="checkbox" name="method" value="consensus" checked> Согласие → один кандидат</label></fieldset>
+        <label><input id="experiment-text" type="checkbox" checked> Только классы text / text_line</label>
+        <div class="experiment-actions"><button id="experiment-start" class="run-button" type="submit">Запустить эксперимент →</button><button id="experiment-cancel" type="button" class="export-button" disabled>Остановить</button></div>
+      </form>
+      <p class="coordinate-hint">GT: каждый исходный polygon — объект. Метрики: precision / recall / F1 по polygon IoU, не COCO AP. Dev/test делятся по страницам; страницы одной книги перед финальной оценкой нужно разделить по документам.</p>
+      <p id="experiment-status" role="status">Готов к настройке</p>
+      <progress id="experiment-progress" value="0" max="1"></progress>
+      <pre id="experiment-log" class="experiment-log" role="log">Здесь будут этапы и прошедшее время.</pre>
+      <div id="experiment-summary" class="table-scroll"></div>
+      <div class="experiment-actions"><label>Результат страницы<select id="experiment-page"></select></label><label>Метод<select id="experiment-method"></select></label><button id="experiment-open" class="export-button" disabled>Открыть разметку</button><button id="experiment-export" class="export-button" disabled>Скачать отчёт JSON</button></div>
+      <h3>История запусков</h3><div id="experiment-history" class="experiment-history"></div>
+      <details><summary>Проверить свой метод из ноутбука</summary><p>JSON с image_name и annotations: у каждого объекта polygon в пикселях, label и score. Формат экспорта smart_detection_fusion_v4 поддерживается. Результат сохраняется как отдельный запуск.</p><label>Загрузить предсказания <input id="external-import" type="file" accept=".json,application/json"></label></details>
+    </section>
   </main>
   <template id="provider-template">
     <label class="provider-row"><input type="checkbox"><span class="provider-name"></span><span class="provider-status"></span></label>
@@ -98,5 +127,6 @@
   <script src="/static/llm_controls.js?v=cancel-1"></script>
   <script src="/static/progress.js?v=1"></script>
   <script src="/static/app.js?v=cancel-1"></script>
+  <script src="/static/workbench.js?v=1"></script>
 </body>
 </html>

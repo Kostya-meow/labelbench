@@ -12,6 +12,8 @@ import numpy as np
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.geometry import clean_polygon
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 from labelbench.providers.mask2former import encode_binary_mask
 
@@ -64,7 +66,7 @@ class RFDETRHistoricalProvider(AnnotationProvider):
         with Image.open(image_path) as image:
             image_size = [image.width, image.height]
         model, device = self._load_model()
-        detections = model.predict(str(image_path), threshold=0.25)
+        detections = model.predict(str(image_path), threshold=confidence(0.25))
         annotations: list[Annotation] = []
         masks = detections.mask
         for index, (box, score, class_id) in enumerate(
@@ -110,4 +112,4 @@ class RFDETRHistoricalProvider(AnnotationProvider):
         contour = max(contours, key=cv2.contourArea).reshape(-1, 2)
         if len(contour) < 3:
             return None
-        return [[float(point[0]), float(point[1])] for point in contour]
+        return clean_polygon([[float(point[0]), float(point[1])] for point in contour])

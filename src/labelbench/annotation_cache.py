@@ -16,9 +16,11 @@ from labelbench.contracts import ProviderResult
 from labelbench.providers.base import AnnotationProvider
 
 
-def cache_key(image_path: Path, provider: AnnotationProvider) -> str:
+def cache_key(image_path: Path, provider: AnnotationProvider, options: dict | None = None) -> str:
     configuration: dict[str, object] = {"provider": provider.name, "model": provider.model_name, "version": 1}
-    for field in ("_device", "_checkpoint", "_config", "_points_per_side"):
+    if options:
+        configuration["options"] = options
+    for field in ("_device", "_checkpoint", "checkpoint", "_onnx_checkpoint", "_config", "_points_per_side"):
         value = getattr(provider, field, None)
         if isinstance(value, Path):
             metadata = value.stat() if value.is_file() else None
@@ -26,9 +28,10 @@ def cache_key(image_path: Path, provider: AnnotationProvider) -> str:
                                     metadata.st_mtime_ns if metadata else None]
         else:
             configuration[field] = value
-    source = inspect.getsourcefile(type(provider))
-    if source:
-        configuration["implementation"] = hashlib.sha256(Path(source).read_bytes()).hexdigest()
+    sources = {inspect.getsourcefile(cls) for cls in type(provider).__mro__ if cls is not object}
+    configuration["implementation"] = [hashlib.sha256(Path(source).read_bytes()).hexdigest()
+                                       for source in sorted(s for s in sources if s)]
+    configuration["geometry"] = hashlib.sha256(Path(__file__).with_name("geometry.py").read_bytes()).hexdigest()
     model_path = Path(provider.model_name)
     if model_path.is_file():
         stat = model_path.stat()

@@ -14,9 +14,12 @@ from fastapi.staticfiles import StaticFiles
 
 from labelbench.cancellation import ReviewCancelled, current_cancellation
 from labelbench.contracts import LLMReviewRequest, RunRequest
+from labelbench.experiment_api import experiment_router
+from labelbench.experiments import ExperimentStore
 from labelbench.llm import LMStudioError, list_models, review_run
 from labelbench.progress import Progress, ProgressJournal, silent_progress
 from labelbench.registry import default_registry
+from labelbench.review_store import save_review
 from labelbench.service import AnnotationService
 from labelbench.settings import Settings
 
@@ -34,6 +37,8 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="LabelBench", version="0.1.0", lifespan=lifespan)
 app.state.progress = ProgressJournal()
+app.state.experiments = ExperimentStore(service)
+app.include_router(experiment_router(service, app.state.experiments))
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 app.mount("/files/images", StaticFiles(directory=settings.images_dir), name="images")
 app.mount("/files/output", StaticFiles(directory=settings.output_dir), name="output")
@@ -139,8 +144,17 @@ def _llm_review(request: LLMReviewRequest, progress: Progress = silent_progress)
         unknown = set(request.providers) - run.providers.keys()
         if unknown:
             raise HTTPException(status_code=400, detail=f"Providers are not in run: {', '.join(sorted(unknown))}")
-        image_path = service.settings.images_dir / run.image_name
-        return review_run(
+        if request.annotation_ids is not None:
+            selected_ids = set(request.annotation_ids)
+            known_ids = {a.id for p, r in run.providers.items() if p in request.providers for a in r.annotations}
+            if selected_ids - known_ids:
+                raise HTTPException(400, "Unknown annotation IDs")
+            run = run.model_copy(update={"providers": {
+                p: r.model_copy(update={"annotations": [a for a in r.annotations if a.id in selected_ids]})
+                for p, r in run.providers.items() if p in request.providers
+            }})
+        image_path = service.image_path(run.image_name, run.dataset_id)
+        response = review_run(
             base_url,
             api_key,
             settings.lm_studio_timeout,
@@ -155,6 +169,10 @@ def _llm_review(request: LLMReviewRequest, progress: Progress = silent_progress)
             max_output_tokens=request.max_output_tokens,
             progress=progress,
         )
+        cancellation = current_cancellation.get()
+        if cancellation:
+            cancellation.check()
+        return save_review(service, request, run, response)
     except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail="Run or image not found") from error
     except LMStudioError as error:
@@ -171,9 +189,12 @@ def create_run(request: RunRequest) -> Any:
 
 def _create_run(request: RunRequest, progress: Progress = silent_progress) -> Any:
     try:
-        return service.run(request.image_name, request.providers, force=request.force, progress=progress)
-    except (FileNotFoundError, ValueError) as error:
+        return service.run(request.image_name, request.providers, force=request.force, progress=progress,
+                           dataset_id=request.dataset_id, options=request.options)
+    except FileNotFoundError as error:
         raise HTTPException(status_code=404, detail=str(error)) from error
+    except ValueError as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
     except KeyError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except subprocess.CalledProcessError as error:
@@ -200,7 +221,11 @@ def get_run(run_id: str):
 def overlay(run_id: str, provider: str) -> FileResponse:
     if provider not in service.providers:
         raise HTTPException(status_code=404, detail="Unknown provider")
-    path = settings.output_dir / provider / run_id / "overlay.png"
+    from labelbench.contracts import safe_child_path
+    try:
+        path = safe_child_path(settings.output_dir / provider, f"{run_id}/overlay.png")
+    except ValueError as error:
+        raise HTTPException(404, "Overlay not found") from error
     if not path.is_file():
         raise HTTPException(status_code=404, detail="Overlay not found")
     return FileResponse(path)

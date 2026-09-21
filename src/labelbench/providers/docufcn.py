@@ -11,6 +11,7 @@ from typing import Any
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.geometry import clean_polygon
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 
 
@@ -41,7 +42,14 @@ class DocUFCNProvider(AnnotationProvider):
         with Image.open(image_path) as image:
             image_size = [image.width, image.height]
         payload = self._call_worker(image_path=image_path)
-        annotations = [Annotation.model_validate(item) for item in payload["annotations"]]
+        annotations = []
+        for item in payload["annotations"]:
+            polygon = clean_polygon(item["polygon"])
+            if polygon is None:
+                continue
+            xs, ys = zip(*polygon, strict=True)
+            annotations.append(Annotation.model_validate({**item, "polygon": polygon,
+                "bbox_xywh": [min(xs), min(ys), max(xs)-min(xs), max(ys)-min(ys)]}))
         return ProviderResult(
             provider=self.name,
             model=self.model_name,
@@ -62,6 +70,8 @@ class DocUFCNProvider(AnnotationProvider):
             "--device",
             self._device,
         ]
+        if getattr(self, "_onnx_checkpoint", None):
+            command.extend(["--onnx", str(self._onnx_checkpoint)])
         if prefetch:
             command.append("--prefetch")
         else:
@@ -71,6 +81,10 @@ class DocUFCNProvider(AnnotationProvider):
             detail = completed.stderr.strip() or completed.stdout.strip()
             raise RuntimeError(f"Doc-UFCN worker failed: {detail[-1200:]}")
         try:
-            return json.loads(completed.stdout)
+            result = json.loads(completed.stdout)
+            for item in result.get("annotations", []):
+                item["provider"] = self.name
+                item["id"] = item["id"].replace("docufcn-", f"{self.name}-", 1)
+            return result
         except json.JSONDecodeError as error:
             raise RuntimeError("Doc-UFCN worker returned invalid JSON") from error

@@ -24,7 +24,7 @@ def test_review_api_routes_backend_and_mode(monkeypatch, tmp_path: Path, backend
                         image_size=[20, 20], annotations=[annotation], elapsed_seconds=0)})
     (tmp_path / "page.jpg").write_bytes(b"test-image")
     monkeypatch.setattr(api.service, "load_run", lambda _: run)
-    monkeypatch.setattr(api.service, "settings", replace(api.service.settings, images_dir=tmp_path))
+    monkeypatch.setattr(api.service, "settings", replace(api.service.settings, images_dir=tmp_path, output_dir=tmp_path / 'out'))
     captured = {}
 
     def request(method, url, payload, timeout, api_key="") -> dict:
@@ -49,6 +49,9 @@ def test_review_api_routes_backend_and_mode(monkeypatch, tmp_path: Path, backend
     else:
         assert captured["key"] == api.settings.lm_studio_api_key
     assert "test-key-placeholder" not in response.text
+    artifact = tmp_path / 'out' / 'reviews' / f"{result['artifact_id']}.json"
+    assert artifact.is_file()
+    assert "test-key-placeholder" not in artifact.read_text(encoding='utf-8')
 
 
 def test_missing_key_is_rejected_and_key_is_not_serialized() -> None:

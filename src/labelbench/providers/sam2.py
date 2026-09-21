@@ -11,6 +11,8 @@ import numpy as np
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.geometry import mask_polygon
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 from labelbench.providers.mask2former import encode_binary_mask
 
@@ -67,7 +69,13 @@ class SAM2Provider(AnnotationProvider):
     def annotate(self, image_path: Path) -> ProviderResult:
         started_at = time.perf_counter()
         image = np.asarray(Image.open(image_path).convert("RGB"))
-        proposals = self._load_generator().generate(image)
+        generator = self._load_generator()
+        previous = generator.pred_iou_thresh
+        try:
+            generator.pred_iou_thresh = confidence(0.80)
+            proposals = generator.generate(image)
+        finally:
+            generator.pred_iou_thresh = previous
         annotations: list[Annotation] = []
         for proposal in proposals:
             x, y, width, height = (float(value) for value in proposal["bbox"])
@@ -79,6 +87,7 @@ class SAM2Provider(AnnotationProvider):
                     score=float(proposal["predicted_iou"]),
                     bbox_xywh=[x, y, width, height],
                     mask_rle=encode_binary_mask(mask),
+                    polygon=mask_polygon(mask),
                     attributes={
                         "area": int(proposal["area"]),
                         "stability_score": float(proposal["stability_score"]),

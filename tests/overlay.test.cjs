@@ -20,8 +20,8 @@ function page() {
     return nodes.get(id);
   };
   const sandbox = vm.createContext({
-    document: { querySelector: get }, console,
-    window: { devicePixelRatio: 1, addEventListener() {}, setTimeout() {} },
+    document: { querySelector: get }, console, Event,
+    window: { devicePixelRatio: 1, addEventListener() {}, setTimeout() {}, dispatchEvent() {} },
     fetch: () => new Promise(() => {}),
   });
   vm.runInContext(fs.readFileSync('src/labelbench/static/llm_controls.js', 'utf8'), sandbox);

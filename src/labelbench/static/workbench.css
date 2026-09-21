@@ -1,0 +1,57 @@
+/* Quiet, compact research workspace; canvas layering stays in the original stylesheet. */
+:root { --paper:#f5f4ee; --panel:#e8ece4; --ink:#182e28; --muted:#4e665d; --line:#c5cec3; }
+body { font-size:14px; }
+.masthead { min-height:90px; padding:18px 28px; gap:24px; }
+h1 { font-size:44px; }
+.workspace-tabs { display:flex; align-items:center; gap:6px; margin-left:auto; }
+.workspace-tabs button,.workspace-tabs a { border:0; padding:12px 16px; background:transparent; color:var(--ink); font:600 14px Georgia,serif; text-decoration:none; }
+.workspace-tabs button[aria-selected="true"] { background:var(--ink); color:white; }
+main { grid-template-columns:310px minmax(0,1fr); }
+.control-panel { padding:22px 18px; gap:18px; align-self:start; position:sticky; top:0; max-height:100vh; overflow:auto; }
+.viewer { padding:24px; }
+.viewer-head h2 { font-size:24px; overflow-wrap:anywhere; }
+.viewer-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:18px; }
+.viewer-toolbar label { display:flex; align-items:center; gap:5px; font-size:12px; }
+.gt-swatch { width:18px; border-top:3px solid #df29ba; }
+.providers { gap:0; max-height:43vh; overflow:auto; padding-right:5px; }
+.viewer > .canvas-wrap { flex:none; height:70vh; min-height:320px; }
+.coordinate-hint { font-size:12px; line-height:1.5; }
+.provider-row { padding:12px; min-height:62px; }
+.provider-row:has(input:checked) { box-shadow:none; border-left:4px solid var(--orange); }
+.threshold-control { display:flex; align-items:center; gap:7px; flex-wrap:wrap; padding:6px 10px 12px; margin-bottom:8px; font:11px monospace; }
+.threshold-control input { width:68px; padding:5px; border:1px solid var(--line); background:white; }
+.threshold-control small { color:var(--muted); font-size:10px; }
+.backend-select { width:100%; min-width:0; padding:6px 10px; border:1px solid var(--line); background:#fffdf8; }
+.provider-status { overflow-wrap:anywhere; }
+input,select,textarea { max-width:100%; box-sizing:border-box; }
+.result-card,.viewer,.control-panel { min-width:0; }
+.legend-wrap { display:none; }
+.result-strip { grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }
+.dataset-import { font-size:12px; }
+.dataset-import summary { cursor:pointer; color:var(--muted); }
+.dataset-import label { display:block; margin:12px 0; }
+.dataset-import input { width:100%; margin-top:6px; padding:8px; }
+.experiments-panel { padding:28px; display:flex; flex-direction:column; gap:18px; min-width:0; }
+[hidden] { display:none !important; }
+.experiments-panel h2 { margin:0; font:30px Georgia,serif; }
+.experiments-panel p { max-width:900px; line-height:1.5; }
+.experiment-config { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:18px; padding:22px; border:1px solid var(--line); background:#fffdf8; }
+.experiment-config label { display:block; font-size:13px; }
+.experiment-config input:not([type="checkbox"]),.experiment-config select { width:100%; padding:10px; margin-top:7px; border:1px solid var(--line); font:13px monospace; }
+.experiment-config fieldset { grid-column:span 2; border:1px solid var(--line); display:flex; flex-wrap:wrap; gap:12px; padding:12px; }
+.experiment-config legend { font-size:12px; }
+.experiment-actions { display:flex; flex-wrap:wrap; gap:12px; align-items:center; grid-column:1/-1; }
+.experiment-log { max-height:230px; overflow:auto; white-space:pre-wrap; background:var(--ink); color:#e5eee9; padding:16px; font:12px/1.6 Consolas,monospace; }
+.table-scroll { overflow:auto; }
+.metrics-table { width:100%; border-collapse:collapse; background:#fffdf8; font:13px Consolas,monospace; }
+.metrics-table th,.metrics-table td { text-align:right; padding:12px; border-bottom:1px solid var(--line); }
+.metrics-table th:first-child,.metrics-table td:first-child { text-align:left; }
+.metrics-table thead { background:#dfe8df; }
+.experiment-history { display:grid; gap:8px; }
+.history-row { display:flex; justify-content:space-between; gap:14px; border:1px solid var(--line); padding:14px; background:#fffdf8; text-align:left; }
+progress { width:100%; height:8px; accent-color:var(--orange); }
+:focus-visible { outline:3px solid #d8772f; outline-offset:3px; }
+.canvas-wrap:fullscreen { background:#1b211d; width:100vw; height:100vh; }
+.canvas-wrap:fullscreen img { max-height:100vh; max-width:100vw; }
+@media(max-width:1000px) { main { grid-template-columns:260px minmax(0,1fr); }.experiment-config { grid-template-columns:1fr 1fr; }.masthead { flex-wrap:wrap; } }
+@media(max-width:760px) { main { grid-template-columns:1fr; }.control-panel { position:static; max-height:none; }.workspace-tabs { margin-left:0; flex-wrap:wrap; }.experiment-config { grid-template-columns:1fr; }.experiment-config fieldset { grid-column:1; }.experiments-panel { padding:18px; }.control-panel .providers { max-height:360px; overflow:auto; } }

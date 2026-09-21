@@ -11,6 +11,8 @@ from typing import Any
 from PIL import Image
 
 from labelbench.contracts import Annotation, ProviderResult
+from labelbench.geometry import clean_polygon
+from labelbench.inference_options import confidence
 from labelbench.providers.base import AnnotationProvider, ProviderAvailability
 
 
@@ -31,6 +33,7 @@ class YOLO26Provider(AnnotationProvider):
 
     def _load_model(self) -> tuple[Any, str]:
         import torch
+
         from ultralytics import YOLO
 
         if self._model is None:
@@ -38,8 +41,11 @@ class YOLO26Provider(AnnotationProvider):
                 "cuda" if self._device == "auto" and torch.cuda.is_available() else self._device
             )
             resolved_device = "cpu" if resolved_device == "auto" else resolved_device
-            self._model = YOLO(self.model_name)
-            self._model.to(resolved_device)
+            self._model = YOLO(self.model_name, task="segment")
+            if Path(self.model_name).suffix.lower() != ".onnx":
+                self._model.to(resolved_device)
+        if Path(self.model_name).suffix.lower() == ".onnx":
+            return self._model, "cuda" if self._device == "cuda" or (self._device == "auto" and torch.cuda.is_available()) else "cpu"
         device = next(self._model.model.parameters()).device.type
         return self._model, device
 
@@ -57,10 +63,15 @@ class YOLO26Provider(AnnotationProvider):
         results = model.predict(
             source=str(image_path),
             device=device,
-            conf=0.25,
+            conf=confidence(0.25),
             verbose=False,
             save=False,
+            imgsz=640, rect=False,
         )
+        if Path(self.model_name).suffix.lower() == ".onnx" and device == "cuda":
+            providers = model.predictor.model.session.get_providers()
+            if not providers or providers[0] != "CUDAExecutionProvider":
+                raise RuntimeError("ONNX inference did not use CUDAExecutionProvider")
         result = results[0]
         annotations: list[Annotation] = []
         boxes = result.boxes
@@ -78,7 +89,7 @@ class YOLO26Provider(AnnotationProvider):
                 polygon = self._polygon(polygons[index]) if index < len(polygons) else None
                 annotations.append(
                     Annotation(
-                        id=f"yolo26-{uuid.uuid4().hex[:12]}",
+                        id=f"{self.name}-{uuid.uuid4().hex[:12]}",
                         label=str(label),
                         score=float(score),
                         bbox_xywh=[x1, y1, max(0.0, x2 - x1), max(0.0, y2 - y1)],
@@ -101,4 +112,4 @@ class YOLO26Provider(AnnotationProvider):
         values = points.tolist()
         if len(values) < 3:
             return None
-        return [[float(point[0]), float(point[1])] for point in values]
+        return clean_polygon([[float(point[0]), float(point[1])] for point in values])
