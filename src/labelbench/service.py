@@ -18,6 +18,7 @@ from labelbench.providers.base import AnnotationProvider
 from labelbench.settings import Settings
 
 PROVIDER_COLORS = {
+    "manuscript_mask2former_onnx": "#9d508c",
     "ppocr": "#f36f38",
     "ppocr6": "#16a085",
     "ppocr6_small": "#287fca",

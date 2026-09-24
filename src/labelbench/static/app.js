@@ -19,6 +19,7 @@ const elements = {
   llmResultMessage: document.querySelector('#llm-result-message'),
 };
 const colors = {
+  manuscript_mask2former_onnx: '#9d508c',
   yolo26_onnx: '#aa790b',
   ppocr6: '#16a085',
   ppocr6_small: '#287fca', ppocr6_tiny: '#b068b0',
@@ -31,6 +32,7 @@ const reviewStyles = {
   modified: ['#1675db', 'Исправлено'], merged: ['#884bd8', 'Объединено'], added: ['#009d99', 'Добавлено'],
 };
 const providerTitles = {
+  manuscript_mask2former_onnx: 'Manuscript Mask2Former Lines · ONNX',
   yolo26_onnx: 'YOLO26-seg · ONNX GPU',
   ppocr6: 'PP-OCRv6 Medium Det',
   ppocr6_small: 'PP-OCRv6 Small Det', ppocr6_tiny: 'PP-OCRv6 Tiny Det',

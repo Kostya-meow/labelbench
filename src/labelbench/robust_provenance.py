@@ -23,7 +23,7 @@ def model_signatures(settings: Settings, providers: list[str]) -> dict:
     for name in providers:
         provider = registry[name]
         files = set()
-        for attribute in ("_checkpoint", "checkpoint", "_onnx_checkpoint"):
+        for attribute in ("_checkpoint", "checkpoint", "_onnx_checkpoint", "_external_data", "_config", "_source", "_adapter_source"):
             value = getattr(provider, attribute, None)
             if isinstance(value, Path) and value.is_file():
                 files.add(value)

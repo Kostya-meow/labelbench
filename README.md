@@ -231,3 +231,7 @@ PP-OCR и Mask2Former делают независимые предсказани
 Замените `ID` идентификатором завершённого запуска с непустой разметкой.
 Тест проверяет пиксели canvas, скрытие слоёв, resize и повторную загрузку изображения.
 Скриншоты сохраняются в `temp/overlay-browser.png` и `temp/qwen-browser.png`.
+
+### Manuscript Mask2Former Lines (ветка v_0_1_13)
+
+`bat/INSTALL_MANUSCRIPT.bat` устанавливает библиотеку из локального checkout в `.venv-manuscript` и проверяет её ONNX-модель на GPU. В интерфейсе — **Manuscript Mask2Former Lines · ONNX**, в API — `manuscript_mask2former_onnx`. [Веса, исправление памяти и результаты проверок](docs/manuscript-mask2former.md).

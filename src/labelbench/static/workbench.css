@@ -13,7 +13,7 @@ main { grid-template-columns:310px minmax(0,1fr); }
 .viewer-toolbar { display:flex; flex-wrap:wrap; align-items:center; gap:18px; }
 .viewer-toolbar label { display:flex; align-items:center; gap:5px; font-size:12px; }
 .gt-swatch { width:18px; border-top:3px solid #df29ba; }
-.providers { gap:0; max-height:43vh; overflow:auto; padding-right:5px; }
+.providers { gap:0; max-height:43vh; overflow:auto; padding-right:5px; grid-auto-rows:max-content; align-content:start; }
 .viewer > .canvas-wrap { flex:none; height:70vh; min-height:320px; }
 .coordinate-hint { font-size:12px; line-height:1.5; }
 .provider-row { padding:12px; min-height:62px; }

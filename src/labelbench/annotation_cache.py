@@ -29,6 +29,10 @@ def cache_key(image_path: Path, provider: AnnotationProvider, options: dict | No
         else:
             configuration[field] = value
     sources = {inspect.getsourcefile(cls) for cls in type(provider).__mro__ if cls is not object}
+    for field in ("_external_data", "_source", "_verification", "_adapter_source"):
+        value = getattr(provider, field, None)
+        if isinstance(value, Path) and value.is_file():
+            configuration[field] = hashlib.sha256(value.read_bytes()).hexdigest()
     configuration["implementation"] = [hashlib.sha256(Path(source).read_bytes()).hexdigest()
                                        for source in sorted(s for s in sources if s)]
     configuration["geometry"] = hashlib.sha256(Path(__file__).with_name("geometry.py").read_bytes()).hexdigest()

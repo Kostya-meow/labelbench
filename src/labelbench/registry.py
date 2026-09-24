@@ -6,6 +6,7 @@ from labelbench.providers.base import AnnotationProvider
 from labelbench.providers.docufcn import DocUFCNProvider
 from labelbench.providers.docufcn_onnx import DocUFCNONNXProvider
 from labelbench.providers.eynollah import EynollahTextlineProvider
+from labelbench.providers.manuscript_mask2former import ManuscriptMask2FormerProvider
 from labelbench.providers.mask2former import Mask2FormerProvider
 from labelbench.providers.ppocr import PPOCRProvider
 from labelbench.providers.ppocr6 import PPOCR6Provider, PPOCR6SmallProvider, PPOCR6TinyProvider
@@ -35,6 +36,7 @@ def default_registry(settings: Settings) -> dict[str, AnnotationProvider]:
         "ppocr6_small_onnx": PPOCR6SmallONNXProvider(settings),
         "ppocr6_tiny_onnx": PPOCR6TinyONNXProvider(settings),
         "mask2former": Mask2FormerProvider(settings.mask2former_model, settings.device),
+        "manuscript_mask2former_onnx": ManuscriptMask2FormerProvider(settings),
         "sam2": SAM2Provider(
             settings.sam2_model,
             settings.sam2_checkpoint,

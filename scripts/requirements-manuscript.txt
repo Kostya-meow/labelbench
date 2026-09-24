@@ -1,0 +1,16 @@
+# Library itself is installed editable from data/vendor/manuscript-ocr, never PyPI.
+# Use the GPU wheel only: do not co-install the upstream CPU onnxruntime dependency.
+onnxruntime-gpu==1.23.2
+onnx==1.23.0
+numpy==2.2.6
+opencv-python==4.11.0.86
+Pillow==12.3.0
+shapely==2.1.2
+scikit-image==0.25.2
+numba==0.67.0
+pydantic==2.13.5
+PyYAML==6.0.3
+tqdm==4.70.1
+gdown==6.4.0
+packaging==26.3
+pytest==9.1.1
